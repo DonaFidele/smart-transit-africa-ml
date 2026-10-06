@@ -1,32 +1,32 @@
 """
-SmartTransit Africa - script d'entraînement (v2)
+SmartTransit Africa - script d'entraînement (v3 : météo réelle)
 
 Démarche : transfert de méthode.
-Le modèle est entraîné sur un jeu de données public de mobilité (type Uber / New York)
-faute de données locales à Cotonou. Chaque site de Cotonou est ensuite associé à la zone
-du jeu d'entraînement dont le PROFIL de demande lui ressemble le plus (et non plus à un
-numéro de zone choisi à la main).
+Le modèle est entraîné sur un jeu public de mobilité (hors Cotonou). La pluie n'est plus
+simulée : on récupère la pluie horaire RÉELLE (Open-Meteo) pour les dates et le lieu du jeu
+de données, et le modèle l'utilise comme variable continue (mm/h).
+
+Lancer depuis la racine du projet :  python src/model.py
 
 Sorties (dossier models/) :
-  - traffic_rf_model.pkl     : classifieur Random Forest (Hour, Day_of_Week, Zone_ID)
-  - kmeans_zones.pkl         : clustering spatial
-  - zone_profiles.csv        : profil de demande de chaque zone
-  - hub_zone_mapping.json    : association site de Cotonou -> zone + justification
+  traffic_rf_model.pkl, kmeans_zones.pkl, zone_profiles.csv,
+  hub_zone_mapping.json, training_meta.json
 """
 import os
+import sys
 import json
 import pickle
-import pandas as pd
+
 import numpy as np
+import pandas as pd
 from scipy.optimize import linear_sum_assignment
 from sklearn.cluster import KMeans
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import classification_report, f1_score
 
-# --------------------------------------------------------------------------
-# Sites de Cotonou et profil recherché (valeurs entre 0 et 1 = rang percentile
-# parmi les 15 zones : demande totale, part des heures de pointe, part de nuit)
-# --------------------------------------------------------------------------
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from weather import fetch_historical_rain, HEAVY_RAIN_MM  # noqa: E402
+
 COTONOU_HUBS = {
     "Échangeur de Godomey (West Gateway)": {
         "lat": 6.3811, "lon": 2.3522,
@@ -62,11 +62,10 @@ COTONOU_HUBS = {
 
 PEAK_HOURS = [7, 8, 9, 16, 17, 18, 19]
 NIGHT_HOURS = [22, 23, 0, 1, 2, 3, 4]
-FEATURES = ["Hour", "Day_of_Week", "Zone_ID"]
+FEATURES = ["Hour", "Day_of_Week", "Zone_ID", "Rain_mm"]
 
 
 def build_zone_profiles(df):
-    """Profil de demande de chaque zone."""
     profiles = df.groupby("Zone_ID").agg(
         demand=("Hour", "size"),
         peak_share=("Hour", lambda h: h.isin(PEAK_HOURS).mean()),
@@ -81,7 +80,6 @@ def build_zone_profiles(df):
 
 
 def map_hubs_to_zones(profiles):
-    """Affectation optimale (1 site <-> 1 zone) par distance entre profils."""
     hub_names = list(COTONOU_HUBS.keys())
     zone_ids = list(profiles.index)
     cost = np.zeros((len(hub_names), len(zone_ids)))
@@ -119,38 +117,57 @@ def main():
     if not os.path.exists(data_path):
         raise FileNotFoundError(f"Error: Missing dataset file at '{data_path}'")
 
-    # Chargement et échantillonnage
     df = pd.read_csv(data_path, usecols=["Date/Time", "Lat", "Lon"])
     df = df.sample(n=min(200000, len(df)), random_state=42)
 
-    # Variables temporelles
     df["Date/Time"] = pd.to_datetime(df["Date/Time"])
     df["Date"] = df["Date/Time"].dt.date
     df["Hour"] = df["Date/Time"].dt.hour
     df["Day_of_Week"] = df["Date/Time"].dt.dayofweek
 
-    # Clustering spatial
     kmeans = KMeans(n_clusters=15, random_state=42, n_init=10)
     df["Zone_ID"] = kmeans.fit_predict(df[["Lat", "Lon"]])
 
-    # Profils de zones + association des sites de Cotonou
     profiles = build_zone_profiles(df)
     mapping = map_hubs_to_zones(profiles)
 
-    # Cible : demande agrégée par date / heure / zone
     agg = (
         df.groupby(["Date", "Day_of_Week", "Hour", "Zone_ID"])
         .size()
         .reset_index(name="Demand_Volume")
     )
 
-    # Découpage CHRONOLOGIQUE (80 % premiers jours = train, 20 % derniers = test)
+    # ---------------- Météo réelle (Open-Meteo) ----------------
+    w_lat, w_lon = round(float(df["Lat"].mean()), 3), round(float(df["Lon"].mean()), 3)
+    d_start, d_end = min(agg["Date"]), max(agg["Date"])
+    print(f"Météo réelle : lieu ({w_lat}, {w_lon}), du {d_start} au {d_end}")
+    try:
+        weather = fetch_historical_rain(
+            w_lat, w_lon, d_start, d_end, cache_path="data/weather_cache.csv"
+        )
+    except Exception as exc:
+        raise SystemExit(
+            f"Impossible de récupérer la météo ({exc}).\n"
+            "Vérifie ta connexion internet : le script en a besoin une première fois "
+            "(les données sont ensuite mises en cache dans data/weather_cache.csv)."
+        )
+
+    agg = agg.merge(weather[["Date", "Hour", "Rain_mm"]], on=["Date", "Hour"], how="left")
+    missing = int(agg["Rain_mm"].isna().sum())
+    if missing:
+        print(f"Attention : {missing} lignes sans donnée météo (pluie fixée à 0).")
+    agg["Rain_mm"] = agg["Rain_mm"].fillna(0.0)
+
+    rain_hours_share = float((weather["Rain_mm"] > 0.1).mean())
+    heavy_hours = int((weather["Rain_mm"] >= HEAVY_RAIN_MM).sum())
+    print(f"Heures avec pluie : {rain_hours_share:.0%} | heures de forte pluie (≥ {HEAVY_RAIN_MM} mm/h) : {heavy_hours}")
+
+    # ---------------- Découpage chronologique ----------------
     dates = sorted(agg["Date"].unique())
     cut = dates[int(len(dates) * 0.8)]
     train = agg[agg["Date"] < cut].copy()
     test = agg[agg["Date"] >= cut].copy()
 
-    # Seuil de saturation calculé sur le train uniquement (pas de fuite)
     saturation_threshold = train["Demand_Volume"].quantile(0.75)
     train["Risk"] = (train["Demand_Volume"] > saturation_threshold).astype(int)
     test["Risk"] = (test["Demand_Volume"] > saturation_threshold).astype(int)
@@ -158,7 +175,6 @@ def main():
     X_train, y_train = train[FEATURES], train["Risk"]
     X_test, y_test = test[FEATURES], test["Risk"]
 
-    # Modèle
     rf_model = RandomForestClassifier(
         n_estimators=150, max_depth=14, random_state=42, class_weight="balanced"
     )
@@ -172,9 +188,23 @@ def main():
     merged = test.merge(lookup, on=["Zone_ID", "Hour", "Day_of_Week"], how="left")
     baseline_pred = (merged["hist"].fillna(0) > 0.5).astype(int)
 
-    print(f"Jours train : {train['Date'].nunique()} | jours test : {test['Date'].nunique()}")
-    print(f"F1 modèle (test chronologique) : {f1_score(y_test, predictions):.2f}")
-    print(f"F1 référence naïve             : {f1_score(y_test, baseline_pred):.2f}")
+    f1_model = float(f1_score(y_test, predictions))
+    f1_base = float(f1_score(y_test, baseline_pred))
+
+    # Effet moyen appris de la pluie : même test, pluie = 0 puis pluie forte
+    probe0 = X_test.copy()
+    probe0["Rain_mm"] = 0.0
+    probe1 = X_test.copy()
+    probe1["Rain_mm"] = HEAVY_RAIN_MM
+    rain_effect = float(
+        (rf_model.predict_proba(probe1)[:, 1] - rf_model.predict_proba(probe0)[:, 1]).mean() * 100
+    )
+
+    print(f"\nJours train : {train['Date'].nunique()} | jours test : {test['Date'].nunique()}")
+    print(f"F1 modèle (test chronologique) : {f1_model:.2f}")
+    print(f"F1 référence naïve             : {f1_base:.2f}")
+    print(f"Effet moyen appris d'une forte pluie : {rain_effect:+.1f} points de risque")
+    print("Importances :", dict(zip(FEATURES, np.round(rf_model.feature_importances_, 3))))
     print("\nClassification Report (modèle) :")
     print(classification_report(y_test, predictions))
 
@@ -182,7 +212,7 @@ def main():
     for name, m in mapping.items():
         print(f"  {name} -> zone {m['zone_id']} (distance de profil {m['distance']})")
 
-    # Export
+    # ---------------- Export ----------------
     os.makedirs("models", exist_ok=True)
     with open("models/traffic_rf_model.pkl", "wb") as f:
         pickle.dump(rf_model, f)
@@ -191,6 +221,24 @@ def main():
     profiles.round(4).to_csv("models/zone_profiles.csv")
     with open("models/hub_zone_mapping.json", "w", encoding="utf-8") as f:
         json.dump(mapping, f, ensure_ascii=False, indent=2)
+
+    meta = {
+        "weather_source": "Open-Meteo (archive)",
+        "weather_lat": w_lat,
+        "weather_lon": w_lon,
+        "date_start": str(d_start),
+        "date_end": str(d_end),
+        "heavy_rain_mm": HEAVY_RAIN_MM,
+        "rain_hours_share": round(rain_hours_share, 3),
+        "heavy_rain_hours": heavy_hours,
+        "rain_effect_points": round(rain_effect, 2),
+        "f1_model": round(f1_model, 3),
+        "f1_baseline": round(f1_base, 3),
+        "n_train_days": int(train["Date"].nunique()),
+        "n_test_days": int(test["Date"].nunique()),
+    }
+    with open("models/training_meta.json", "w", encoding="utf-8") as f:
+        json.dump(meta, f, ensure_ascii=False, indent=2)
 
 
 if __name__ == "__main__":
