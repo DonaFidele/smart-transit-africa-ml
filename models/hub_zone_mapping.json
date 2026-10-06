@@ -2,8 +2,13 @@
   "Échangeur de Godomey (West Gateway)": {
     "lat": 6.3811,
     "lon": 2.3522,
-    "archetype": "Porte d'entrée / flux pendulaires",
-    "criteria": "Flux dominé par les trajets domicile-travail : forte part d'heures de pointe, peu d'activité nocturne.",
+    "archetype": "Gateway / commuter flows",
+    "criteria": "Flow dominated by home-work trips: high share of peak hours, little night activity.",
+    "target": {
+      "demand": 0.6,
+      "peak_share": 0.9,
+      "night_share": 0.2
+    },
     "zone_id": 3,
     "distance": 0.1,
     "zone_demand_rank": 0.6,
@@ -13,8 +18,13 @@
   "Grand Marché de Dantokpa (Commercial Hub)": {
     "lat": 6.3708,
     "lon": 2.4344,
-    "archetype": "Pôle commercial",
-    "criteria": "Plus forte demande du réseau, activité concentrée en journée.",
+    "archetype": "Commercial hub",
+    "criteria": "Highest demand in the network, activity concentrated in the daytime.",
+    "target": {
+      "demand": 1.0,
+      "peak_share": 0.6,
+      "night_share": 0.2
+    },
     "zone_id": 1,
     "distance": 0.34,
     "zone_demand_rank": 1.0,
@@ -24,8 +34,13 @@
   "Carrefour Vèdoko (Central Junction)": {
     "lat": 6.3754,
     "lon": 2.3881,
-    "archetype": "Carrefour central",
-    "criteria": "Forte demande, pointes marquées et activité soutenue en soirée.",
+    "archetype": "Central junction",
+    "criteria": "High demand, marked peaks and sustained evening activity.",
+    "target": {
+      "demand": 0.8,
+      "peak_share": 0.8,
+      "night_share": 0.5
+    },
     "zone_id": 0,
     "distance": 0.252,
     "zone_demand_rank": 0.87,
@@ -35,8 +50,13 @@
   "Carrefour Cadjehoun (Avenue Jean-Paul II)": {
     "lat": 6.3575,
     "lon": 2.398,
-    "archetype": "Axe urbain mixte",
-    "criteria": "Demande moyenne, répartition équilibrée sur la journée avec une vie nocturne notable.",
+    "archetype": "Mixed urban axis",
+    "criteria": "Medium demand, balanced across the day with notable nightlife.",
+    "target": {
+      "demand": 0.6,
+      "peak_share": 0.6,
+      "night_share": 0.6
+    },
     "zone_id": 12,
     "distance": 0.163,
     "zone_demand_rank": 0.73,
@@ -46,8 +66,13 @@
   "Zone Portuaire / Akpakpa (Logistics Hub)": {
     "lat": 6.365,
     "lon": 2.449,
-    "archetype": "Hub logistique",
-    "criteria": "Demande modérée, activité diurne régulière sans pointes pendulaires, très peu de nuit.",
+    "archetype": "Logistics hub",
+    "criteria": "Moderate demand, steady daytime activity without commuter peaks, very little at night.",
+    "target": {
+      "demand": 0.4,
+      "peak_share": 0.3,
+      "night_share": 0.1
+    },
     "zone_id": 10,
     "distance": 0.397,
     "zone_demand_rank": 0.2,

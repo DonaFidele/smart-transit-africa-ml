@@ -30,33 +30,33 @@ from weather import fetch_historical_rain, HEAVY_RAIN_MM  # noqa: E402
 COTONOU_HUBS = {
     "Échangeur de Godomey (West Gateway)": {
         "lat": 6.3811, "lon": 2.3522,
-        "archetype": "Porte d'entrée / flux pendulaires",
+        "archetype": "Gateway / commuter flows",
         "target": {"demand": 0.6, "peak_share": 0.9, "night_share": 0.2},
-        "why": "Flux dominé par les trajets domicile-travail : forte part d'heures de pointe, peu d'activité nocturne.",
+        "why": "Flow dominated by home-work trips: high share of peak hours, little night activity.",
     },
     "Grand Marché de Dantokpa (Commercial Hub)": {
         "lat": 6.3708, "lon": 2.4344,
-        "archetype": "Pôle commercial",
+        "archetype": "Commercial hub",
         "target": {"demand": 1.0, "peak_share": 0.6, "night_share": 0.2},
-        "why": "Plus forte demande du réseau, activité concentrée en journée.",
+        "why": "Highest demand in the network, activity concentrated in the daytime.",
     },
     "Carrefour Vèdoko (Central Junction)": {
         "lat": 6.3754, "lon": 2.3881,
-        "archetype": "Carrefour central",
+        "archetype": "Central junction",
         "target": {"demand": 0.8, "peak_share": 0.8, "night_share": 0.5},
-        "why": "Forte demande, pointes marquées et activité soutenue en soirée.",
+        "why": "High demand, marked peaks and sustained evening activity.",
     },
     "Carrefour Cadjehoun (Avenue Jean-Paul II)": {
         "lat": 6.3575, "lon": 2.3980,
-        "archetype": "Axe urbain mixte",
+        "archetype": "Mixed urban axis",
         "target": {"demand": 0.6, "peak_share": 0.6, "night_share": 0.6},
-        "why": "Demande moyenne, répartition équilibrée sur la journée avec une vie nocturne notable.",
+        "why": "Medium demand, balanced across the day with notable nightlife.",
     },
     "Zone Portuaire / Akpakpa (Logistics Hub)": {
         "lat": 6.3650, "lon": 2.4490,
-        "archetype": "Hub logistique",
+        "archetype": "Logistics hub",
         "target": {"demand": 0.4, "peak_share": 0.3, "night_share": 0.1},
-        "why": "Demande modérée, activité diurne régulière sans pointes pendulaires, très peu de nuit.",
+        "why": "Moderate demand, steady daytime activity without commuter peaks, very little at night.",
     },
 }
 

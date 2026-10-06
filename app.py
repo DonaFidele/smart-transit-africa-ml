@@ -2,73 +2,136 @@ import json
 import os
 import pickle
 import sys
+from datetime import datetime
 
 import pandas as pd
 import streamlit as st
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "src"))
+import theme  # noqa: E402
 from weather import fetch_forecast, HEAVY_RAIN_MM  # noqa: E402
 from forecast_tab import render as render_forecast_tab  # noqa: E402
 from field_tab import render as render_field_tab  # noqa: E402
 
-st.set_page_config(page_title="SmartTransit Platform", layout="wide")
+st.set_page_config(page_title="SmartTransit Africa · Urban Risk Lab", page_icon="⚡", layout="wide")
+theme.inject_css()
 
+C = theme.COLORS
 FEATURE_COLUMNS = ["Hour", "Day_of_Week", "Zone_ID", "Rain_mm"]
 COTONOU_LAT, COTONOU_LON = 6.37, 2.39
 
 DAYS = ["Monday", "Tuesday", "Wednesday (Dantokpa Market Day)", "Thursday",
         "Friday", "Saturday (Market Day)", "Sunday"]
+MODE_MANUAL = "Manual scenario"
+MODE_FORECAST = "Live forecast (Cotonou)"
+PRESETS = {
+    "Rush": {"day": 0, "hour": 8, "rain": 0.0},
+    "Market": {"day": 2, "hour": 17, "rain": 0.0},
+    "Storm": {"day": 4, "hour": 17, "rain": 12.0},
+    "Night": {"day": 6, "hour": 3, "rain": 0.0},
+}
 
-# 1. PERMANENT LOG HISTORY INITIALIZATION
-if "recommendation_history" not in st.session_state:
-    st.session_state.recommendation_history = []
+# ----------------------------------------------------------------------------
+# Session state defaults
+# ----------------------------------------------------------------------------
+st.session_state.setdefault("recommendation_history", [])
+st.session_state.setdefault("sb_mode", MODE_MANUAL)
+st.session_state.setdefault("sb_day", DAYS[0])
+st.session_state.setdefault("sb_hour", 17)
+st.session_state.setdefault("sb_rain", 0.0)
+st.session_state.setdefault("sb_thr", 50)
+st.session_state.setdefault("sb_market", True)
+st.session_state.setdefault("sb_radj", 0)
 
 
+def apply_preset(name):
+    p = PRESETS[name]
+    st.session_state["sb_mode"] = MODE_MANUAL
+    st.session_state["sb_day"] = DAYS[p["day"]]
+    st.session_state["sb_hour"] = p["hour"]
+    st.session_state["sb_rain"] = p["rain"]
+
+
+def clear_log():
+    st.session_state["recommendation_history"] = []
+
+
+# ----------------------------------------------------------------------------
+# Helpers
+# ----------------------------------------------------------------------------
 def rain_label(mm):
     if mm < 0.1:
-        return "aucune pluie"
+        return "no rain"
     if mm < 2.5:
-        return "pluie faible"
+        return "light rain"
     if mm < HEAVY_RAIN_MM:
-        return "pluie modérée"
-    return "forte pluie"
+        return "moderate rain"
+    return "heavy rain"
 
 
-# 2. POP-UP MODAL DEFINITION
+def short_name(name):
+    base = name.split(" (")[0]
+    for prefix in ("Échangeur de ", "Grand Marché de ", "Carrefour ", "Zone "):
+        base = base.replace(prefix, "")
+    return base
+
+
+def predict_risk(model, hours, day_index, zone_id, rain_mm):
+    """Saturation probability (%) for one or several hours."""
+    hours = list(hours) if hasattr(hours, "__iter__") else [hours]
+    X = pd.DataFrame({
+        "Hour": hours, "Day_of_Week": day_index, "Zone_ID": zone_id, "Rain_mm": rain_mm,
+    })[FEATURE_COLUMNS]
+    return model.predict_proba(X)[:, 1] * 100
+
+
+def status_of(risk, threshold):
+    if risk >= threshold:
+        return "critical", C["red"]
+    if risk >= threshold - 10:
+        return "watch", C["yellow"]
+    return "stable", C["green"]
+
+
+# ----------------------------------------------------------------------------
+# Pop-up report
+# ----------------------------------------------------------------------------
 @st.dialog("📋 Urban Planning & Traffic Mitigation Guidelines", width="large")
-def show_guidelines_modal(loc, risk, rain, market, critical_flag, threshold_val, market_mult):
+def show_guidelines_modal(loc, risk, rain, market, critical_flag, market_mult):
     st.write(f"### Prescriptive Action Report for: **{loc}**")
 
     if critical_flag:
-        st.error(f"🚨 **CRITICAL CONGESTION WARNING: {risk:.1f}% Saturation Risk**")
+        st.error(f"🚨 **CRITICAL CONGESTION WARNING: {risk:.1f}% saturation risk**")
 
         if rain == 1:
-            st.markdown("### ⚠️ Recommandation Drainage :")
-            st.write(f"Risque élevé de saturation imminente du réseau routier à **{loc}**. Activer immédiatement les pompes de relevage de la station principale et suspendre obligatoirement tous les chantiers de terrassement en cours dans ce secteur urbain.")
+            st.markdown("### ⚠️ Drainage Recommendation")
+            st.write(f"High risk of imminent road-network saturation at **{loc}**. Immediately activate the lift pumps at the main station and suspend all ongoing earthworks in this urban sector.")
 
-            st.markdown("### 🔧 Maintenance Infrastructures (Post-Inondation) :")
-            st.write("Prioriser l'inspection urgente des voies pavées de Cotonou environnantes pour détecter, cartographier et traiter d'éventuels affouillements critiques sous la chaussée avant effondrement.")
+            st.markdown("### 🔧 Infrastructure Maintenance (Post-Flood)")
+            st.write("Prioritize urgent inspection of the surrounding paved roads in Cotonou to detect, map and treat any critical scouring under the roadway before it collapses.")
         else:
-            st.markdown("### 🚦 Régulation du Trafic :")
-            st.write(f"Déployer immédiatement des brigades d'agents de régulation au niveau de l'intersection de **{loc}** pour gérer manuellement les flux de véhicules avant l'engorgement complet du réseau.")
+            st.markdown("### 🚦 Traffic Regulation")
+            st.write(f"Immediately deploy traffic regulation officers at the **{loc}** intersection to manage vehicle flows manually before the network is completely blocked.")
 
         st.markdown("---")
         st.markdown("#### 🏛️ Long-Term Municipal Structural Policy")
         if market == 1 or (market_mult and ("Dantokpa" in loc or "Portuaire" in loc)):
-            st.write("- **Logistical Decoupling:** Marketplace loading zones are oversaturating transit tracks. Plan a decentralized off-dock logistical hub to move freight handling outside systemic peak hours.")
+            st.write("- **Logistical Decoupling:** Marketplace loading zones are oversaturating transit tracks. Plan a decentralized off-dock logistics hub to move freight handling outside systemic peak hours.")
         else:
             st.write("- **Capacity Elasticity Engineering:** Expand the road network's geometric absorption limits or introduce automated dynamic tidal lanes to accommodate exponential commuter growth.")
     else:
-        st.success(f"🟢 **STABLE FLOW CONDITIONS: {risk:.1f}% Saturation Risk**")
+        st.success(f"🟢 **STABLE FLOW CONDITIONS: {risk:.1f}% saturation risk**")
         st.markdown("#### Baseline Operational Guidelines")
-        st.write("Aucune intervention d'urgence requise dans ce secteur. Maintenir le protocole de surveillance et de télémétrie routière courante via les caméras de la municipalité.")
-        st.write("- **Status:** The infrastructure corridor retains adequate geometric elasticity to seamlessly handle current transit velocity curves.")
+        st.write("No emergency intervention required in this sector. Maintain routine monitoring and road telemetry through the municipal cameras.")
+        st.write("- **Status:** The infrastructure corridor retains enough geometric elasticity to handle current transit velocity curves.")
 
-    st.caption("⚠️ Simulation issue d'un modèle de démonstration (transfert de méthode). Validation terrain requise avant toute décision opérationnelle.")
-    st.info("Dismiss or close this pop-up view to log this simulation trace permanently on the dashboard storage below.")
+    st.caption("⚠️ Simulation from a demonstration model (method transfer). Field validation is required before any operational decision.")
+    st.info("Close this pop-up to see the new entry in the Action Log tab.")
 
 
-# 3. MODEL ARTIFACTS + FORECAST LOADING
+# ----------------------------------------------------------------------------
+# Artifacts loading
+# ----------------------------------------------------------------------------
 @st.cache_resource
 def load_production_models():
     with open("models/traffic_rf_model.pkl", "rb") as f:
@@ -85,7 +148,7 @@ def load_production_models():
 
 @st.cache_data(ttl=1800, show_spinner=False)
 def load_forecast():
-    """Prévision réelle pour Cotonou ; None si le réseau est indisponible."""
+    """Real forecast for Cotonou; None if the network is unavailable."""
     try:
         return fetch_forecast(COTONOU_LAT, COTONOU_LON, hours=48)
     except Exception:
@@ -96,259 +159,344 @@ try:
     model, kmeans, COTONOU_HUBS, zone_profiles, meta = load_production_models()
 
     if getattr(model, "n_features_in_", None) != len(FEATURE_COLUMNS):
-        st.error("Le modèle chargé ne correspond pas à cette version de l'application. Relance `python src/model.py` puis redémarre l'app.")
+        st.error("The loaded model does not match this app version. Re-run `python src/model.py` and restart the app.")
         st.stop()
 
-    st.title("🌍 SmartTransit Africa: Multi-Profile Urban Analytics Platform")
+    hub_names = list(COTONOU_HUBS.keys())
 
-    st.warning(
-        "**Prototype de démonstration (transfert de méthode).** Le modèle est entraîné sur un jeu de données "
-        "public de mobilité (hors Cotonou), faute de données locales, avec la pluie réelle observée sur ce lieu et "
-        "ces dates. Chaque site de Cotonou est associé à la zone d'entraînement dont le profil de demande lui "
-        "ressemble le plus. Les résultats illustrent la chaîne données → modèle → décision et ne constituent "
-        "pas une prévision validée pour Cotonou."
-    )
+    # ========================================================================
+    # SIDEBAR : controls
+    # ========================================================================
+    with st.sidebar:
+        theme.render(
+            '<div class="gel-header"><span class="gel-bolt">⚡</span>'
+            '<span class="gel-title" style="font-size:1.1rem">SMARTTRANSIT</span></div>'
+            '<div class="gel-sub" style="margin-bottom:.4rem">Urban risk lab v3.0</div>'
+        )
 
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "📊 Public Policy & Decision Mode (Cotonou Hubs)",
-        "🔬 Core Engineering & Model Diagnostics (Raw Data)",
-        "📈 Forecast with Lags (Backtest)",
-        "🧪 Field Validation (Cotonou Counts)",
-    ])
+        theme.render(theme.label("Preset mode"))
+        for col, preset in zip(st.columns(4), PRESETS):
+            col.button(preset, key=f"preset_{preset}", on_click=apply_preset, args=(preset,),
+                       use_container_width=True)
 
-    # =========================================================================
-    # TAB 1: PUBLIC POLICY & PRESCRIPTIVE DECISION MODE (COTONOU)
-    # =========================================================================
-    with tab1:
-        st.markdown("""
-        ### Strategic Technology Transfer & Prescriptive Urban Planning
-        This deployment profile projects behavioral simulation layers directly onto the infrastructure network of **Cotonou, Benin**.
-        """)
+        theme.render(theme.label("Hub"))
+        selected_location = st.selectbox("Target Cotonou hub", hub_names, key="sb_hub",
+                                         format_func=short_name, label_visibility="collapsed")
+        hub_data = COTONOU_HUBS[selected_location]
 
-        with st.sidebar.expander("⚙️ Customize AI Trigger Thresholds", expanded=True):
-            st.markdown("_Fine-tune algorithmic decision parameters for Cotonou municipal rules:_")
-            user_crit_threshold = st.slider("Critical Alert Threshold (%)", 20, 95, 50)
-            market_multiplier = st.checkbox("Prioritize Marketplace Logistics", value=True)
+        theme.render(theme.label("Scenario"))
+        forecast_df = load_forecast()
+        mode = st.radio("Scenario source", [MODE_MANUAL, MODE_FORECAST], key="sb_mode",
+                        label_visibility="collapsed")
+        use_forecast = mode == MODE_FORECAST
+        if use_forecast and forecast_df is None:
+            st.warning("Forecast unavailable (no connection?). Falling back to the manual scenario.")
+            use_forecast = False
+
+        if use_forecast:
+            labels = [f"{t:%a %d/%m %Hh} — {mm:.1f} mm/h"
+                      for t, mm in zip(forecast_df["time"], forecast_df["Rain_mm"])]
+            choice = st.selectbox("Forecast slot (next 48 h)", labels, key="sb_slot")
+            row = forecast_df.iloc[labels.index(choice)] if choice in labels else forecast_df.iloc[0]
+            day_index = int(row["time"].weekday())
+            selected_hour = int(row["time"].hour)
+            rain_mm = float(row["Rain_mm"])
+            prob = row.get("Rain_prob")
+            prob_txt = f", rain probability {prob:.0f}%" if pd.notna(prob) else ""
+            st.caption(f"{rain_label(rain_mm).capitalize()} ({rain_mm:.1f} mm/h{prob_txt}).")
+        else:
+            selected_day = st.selectbox("Day of the week", DAYS, key="sb_day")
+            day_index = DAYS.index(selected_day)
+            selected_hour = st.slider("Hour of the day", 0, 23, key="sb_hour")
+            rain_mm = st.slider("Rainfall (mm/h)", 0.0, 30.0, step=0.5, key="sb_rain")
+            st.caption(f"{rain_label(rain_mm).capitalize()} (heavy rain from {HEAVY_RAIN_MM} mm/h).")
+
+        theme.render(theme.label("Alert rules"))
+        user_crit_threshold = st.slider("Critical alert threshold (%)", 20, 95, key="sb_thr")
+        market_multiplier = st.checkbox("Prioritize marketplace logistics", key="sb_market")
+        with st.expander("Advanced"):
             rain_penalty = st.slider(
-                "Expert rain adjustment (+ points, optional)", 0, 30, 0,
-                help="Facultatif. Le modèle utilise déjà la pluie réelle apprise à l'entraînement. "
-                     "Ce réglage ajoute une majoration d'expert (hypothèse locale) en cas de forte pluie.",
+                "Expert rain adjustment (+ points)", 0, 30, key="sb_radj",
+                help="Optional. The model already uses the real rainfall learned during training. "
+                     "This adds an expert surcharge (local hypothesis) when rain is heavy.",
             )
 
-        col_inputs, col_visuals = st.columns(2)
-
-        with col_inputs:
-            st.subheader("Socio-Environmental Stressors")
-            selected_location = st.selectbox("Select Target Cotonou Hub", list(COTONOU_HUBS.keys()))
-            hub_data = COTONOU_HUBS[selected_location]
-
-            st.caption(
-                f"Profil : **{hub_data['archetype']}** → zone d'entraînement n°{hub_data['zone_id']} "
-                f"(écart de profil {hub_data['distance']})."
+        theme.render(theme.label("Controls"))
+        run_clicked = st.button("⚡ RUN SIMULATION", type="primary", use_container_width=True, key="run_btn")
+        st.caption("The dashboard updates live. Press RUN to log the scenario and open the action report.")
+        with st.expander("ℹ️ HOW TO READ THIS"):
+            st.markdown(
+                "- **Risk score**: probability that the hub's demand exceeds the saturation level (top 25% of slots).\n"
+                "- **Alert threshold**: the risk above which the status becomes *critical*.\n"
+                "- **Watch**: within 10 points below the threshold.\n"
+                "- **Presets**: one-click scenarios (rush hour, market day, storm, night)."
             )
 
-            forecast_df = load_forecast()
-            mode_options = ["Scénario manuel", "Prévision météo réelle (Cotonou, Open-Meteo)"]
-            mode = st.radio("Source du scénario", mode_options)
+    # ========================================================================
+    # Computation
+    # ========================================================================
+    is_market_day = 1 if day_index in [2, 5] else 0
+    heavy_rain_flag = 1 if rain_mm >= HEAVY_RAIN_MM else 0
+    extra = rain_penalty if heavy_rain_flag else 0
 
-            use_forecast = mode == mode_options[1]
-            if use_forecast and forecast_df is None:
-                st.warning("Prévision indisponible (pas de connexion ?). Retour au scénario manuel.")
-                use_forecast = False
+    base_risk = float(predict_risk(model, [selected_hour], day_index, hub_data["zone_id"], rain_mm)[0])
+    risk = min(100.0, base_risk + extra)
+    is_critical = risk >= user_crit_threshold
+    status, status_color = status_of(risk, user_crit_threshold)
 
-            if use_forecast:
-                labels = [
-                    f"{t:%a %d/%m %Hh} — {mm:.1f} mm/h"
-                    for t, mm in zip(forecast_df["time"], forecast_df["Rain_mm"])
-                ]
-                choice = st.selectbox("Créneau prévu (48 h à venir)", labels)
-                row = forecast_df.iloc[labels.index(choice)]
-                day_index = int(row["time"].weekday())
-                selected_hour = int(row["time"].hour)
-                rain_mm = float(row["Rain_mm"])
-                prob = row.get("Rain_prob")
-                prob_txt = f", probabilité de pluie {prob:.0f}%" if pd.notna(prob) else ""
-                st.caption(f"{DAYS[day_index].split(' (')[0]} {selected_hour}h — {rain_label(rain_mm)} ({rain_mm:.1f} mm/h{prob_txt}).")
-            else:
-                selected_day = st.selectbox("Day of the Week (Cotonou Context)", DAYS)
-                day_index = DAYS.index(selected_day)
-                selected_hour = st.slider("Target Commuting Window Hour", 0, 23, 17, key="c_hour")
-                rain_mm = st.slider("Pluie (mm/h)", 0.0, 30.0, 0.0, 0.5)
-                st.caption(f"Équivalent : {rain_label(rain_mm)} (forte pluie à partir de {HEAVY_RAIN_MM} mm/h).")
-
-            is_market_day = 1 if day_index in [2, 5] else 0
-            heavy_rain_flag = 1 if rain_mm >= HEAVY_RAIN_MM else 0
-
-            run_c_sim = st.button("🚀 Run Prescriptive Policy Simulation", use_container_width=True)
-
-        with col_visuals:
-            st.subheader("Geospatial Node Tracking Map")
-
-            map_color = "#0000FF"  # Neutral blue at startup
-            saturation_risk_percentage = 0.0
-            is_critical = False
-
-            input_vector = pd.DataFrame(
-                [[selected_hour, day_index, hub_data["zone_id"], rain_mm]],
-                columns=FEATURE_COLUMNS,
+    open_report = False
+    if run_clicked:
+        entry = {
+            "Location": selected_location,
+            "Risk": f"{risk:.1f}%",
+            "Status": "CRITICAL 🔴" if is_critical else "STABLE 🟢",
+            "When": f"{DAYS[day_index].split(' (')[0]} {selected_hour}h, {rain_mm:.1f} mm/h",
+            "Details": "",
+        }
+        if is_critical and heavy_rain_flag == 1:
+            entry["Details"] = (
+                f"⚠️ **Drainage Recommendation:** Activate the lift pumps and suspend earthworks at {selected_location}.\n\n"
+                "🔧 **Infrastructure Maintenance:** Urgent priority inspection of Cotonou's paved roads for pavement scouring."
             )
+        elif is_critical:
+            entry["Details"] = f"🚦 **Emergency Traffic Regulation:** Traffic officers must be deployed to relieve congestion at {selected_location}."
+        else:
+            entry["Details"] = f"✅ Smooth and stable flow recorded for {selected_location}. Nothing to report (routine monitoring)."
+        st.session_state.recommendation_history.insert(0, entry)
+        open_report = True
 
-            if run_c_sim:
-                base_risk = float(model.predict_proba(input_vector)[0][1]) * 100
-                extra = rain_penalty if heavy_rain_flag else 0
-                saturation_risk_percentage = min(100.0, base_risk + extra)
-                is_critical = bool(saturation_risk_percentage >= user_crit_threshold)
-                map_color = "#FF0000" if is_critical else "#00FF00"
+    history = st.session_state.recommendation_history
+    n_crit = sum(1 for e in history if e["Status"].startswith("CRITICAL"))
+    n_stable = len(history) - n_crit
 
-            map_df = pd.DataFrame([{
-                "lat": hub_data["lat"],
-                "lon": hub_data["lon"],
-                "Location": selected_location,
-                "color": map_color,
-            }])
-            st.map(map_df, latitude="lat", longitude="lon", color="color", zoom=13)
+    # ========================================================================
+    # HEADER, METRIC STRIP, BANNER
+    # ========================================================================
+    theme.render(theme.header(
+        "SmartTransit Africa",
+        ["v3.0", "COTONOU · BENIN", "Hourly risk"],
+        f"Urban congestion risk lab · {datetime.utcnow():%d %b %Y %H:%M} UTC",
+    ))
+    theme.render(theme.note(
+        "Demonstration prototype (method transfer). The model is trained on a public mobility dataset from outside "
+        "Cotonou, with the real rainfall observed at that place and dates. Each Cotonou hub is matched to the training "
+        "zone whose demand profile resembles it most. Results illustrate the data → model → decision chain and are not "
+        "a validated forecast for Cotonou."
+    ))
 
-            if run_c_sim:
-                txt = f"Risque modèle : {base_risk:.1f}% (pluie {rain_mm:.1f} mm/h)."
-                if extra:
-                    txt += f" + majoration d'expert : +{extra} pts."
-                st.caption(txt)
+    strip = st.columns(5)
+    strip[0].markdown(theme.card("Selected hub", short_name(selected_location), hub_data["archetype"], C["cyan"]),
+                      unsafe_allow_html=True)
+    strip[1].markdown(theme.card("Congestion risk", f"{risk:.1f}%",
+                                 f"model {base_risk:.1f}%" + (f" + {extra} pts" if extra else ""), status_color),
+                      unsafe_allow_html=True)
+    strip[2].markdown(theme.card("Rainfall", f"{rain_mm:.1f} mm/h", rain_label(rain_mm),
+                                 C["cyan"] if rain_mm >= 0.1 else C["muted"]), unsafe_allow_html=True)
+    strip[3].markdown(theme.card("Alert status", status.upper(), f"threshold {user_crit_threshold}%", status_color),
+                      unsafe_allow_html=True)
+    strip[4].markdown(theme.card("Training analogue", f"Zone {hub_data['zone_id']}",
+                                 f"profile gap {hub_data['distance']}", C["purple"]), unsafe_allow_html=True)
 
-                log_entry = {
-                    "Location": selected_location,
-                    "Risk": f"{saturation_risk_percentage:.1f}%",
-                    "Status": "CRITICAL 🔴" if is_critical else "STABLE 🟢",
-                    "Details": "",
-                }
+    if status == "critical":
+        banner = theme.banner(
+            "danger", "🚨", "CRITICAL SATURATION RISK — ACTION REQUIRED",
+            ("Heavy rain + saturation: activate drainage pumps and suspend earthworks (details in the report)."
+             if heavy_rain_flag else
+             "Deploy traffic regulation officers before the network is fully blocked (details in the report)."),
+        )
+    elif status == "watch":
+        banner = theme.banner(
+            "warn", "👁️", "WATCH — APPROACHING THE ALERT THRESHOLD",
+            f"Risk is within 10 points of the {user_crit_threshold}% threshold. Keep monitoring this hub.",
+        )
+    else:
+        banner = theme.banner(
+            "ok", "🎯", "STABLE FLOW — ROUTINE MONITORING",
+            f"Risk is below the {user_crit_threshold}% alert threshold. No intervention required.",
+        )
+    theme.render(banner)
 
-                if is_critical and heavy_rain_flag == 1:
-                    log_entry["Details"] = (
-                        f"⚠️ **Recommandation Drainage:** Activer les pompes de relevage et suspendre les chantiers de terrassement à {selected_location}.\n\n"
-                        "🔧 **Maintenance Infrastructures:** Inspection prioritaire urgente des voies pavées de Cotonou contre les affouillements de chaussée."
-                    )
-                elif is_critical:
-                    log_entry["Details"] = f"🚦 **Régulation Routière d'Urgence:** Déploiement d'agents de circulation requis pour désengorger {selected_location}."
-                else:
-                    log_entry["Details"] = f"✅ Flux fluide et stable enregistré pour {selected_location}. RAS (Surveillance de routine)."
+    # ========================================================================
+    # MAIN LAYOUT : tabs (left) + score column (right)
+    # ========================================================================
+    main_col, side_col = st.columns([3.1, 1])
 
-                st.session_state.recommendation_history.insert(0, log_entry)
+    with side_col:
+        theme.render(theme.score_card(
+            risk, "Risk score",
+            {"critical": "Critical — act now", "watch": "Approaching the threshold", "stable": "Stable conditions"}[status],
+            status_color,
+        ))
+        theme.render(theme.tiles([
+            (n_crit, "Critical", C["red"]),
+            (n_stable, "Stable", C["green"]),
+            (len(history), "Runs", C["cyan"]),
+        ]))
+        theme.render(theme.label("Key indicators"))
+        margin = user_crit_threshold - risk
+        theme.render(theme.side_card(
+            "Alert threshold", f"{user_crit_threshold}%",
+            f"{abs(margin):.1f} pts {'below' if margin > 0 else 'above'} the threshold", C["red"]))
+        theme.render(theme.side_card(
+            "Rain condition", rain_label(rain_mm).upper(), f"{rain_mm:.1f} mm/h", C["cyan"]))
+        theme.render(theme.side_card(
+            "Model quality", f"F1 {meta['f1_model']:.2f}",
+            f"naive baseline {meta['f1_baseline']:.2f} (chronological test)", C["yellow"]))
 
-                show_guidelines_modal(
-                    selected_location, saturation_risk_percentage, heavy_rain_flag,
-                    is_market_day, is_critical, user_crit_threshold, market_multiplier,
+    with main_col:
+        tab_risk, tab_map, tab_log, tab_eng, tab_fc, tab_field = st.tabs([
+            "📈 Risk profile", "🗺️ Hub map", "📋 Action log",
+            "🔬 Engineering", "🔮 Forecast", "🧪 Field data",
+        ])
+
+        # ---------------- Risk profile ----------------
+        with tab_risk:
+            hours = list(range(24))
+            profile = predict_risk(model, hours, day_index, hub_data["zone_id"], rain_mm)
+            chart_df = pd.DataFrame({
+                "Predicted risk (%)": profile,
+                "Alert threshold (%)": float(user_crit_threshold),
+            }, index=hours)
+            chart_df.index.name = "Hour"
+            st.caption(f"Predicted saturation risk by hour — {short_name(selected_location)}, "
+                       f"{DAYS[day_index].split(' (')[0]}, {rain_mm:.1f} mm/h")
+            st.line_chart(chart_df, color=["#22d3ee", "#ef4444"], height=300)
+
+            comparison = pd.Series(
+                {short_name(n): float(predict_risk(model, [selected_hour], day_index, h["zone_id"], rain_mm)[0])
+                 for n, h in COTONOU_HUBS.items()},
+                name="Predicted risk (%)",
+            )
+            st.caption(f"All hubs at {selected_hour}h, same day and rain")
+            st.bar_chart(comparison, color="#22d3ee", height=240)
+
+            with st.expander("ℹ️ Reading this chart"):
+                st.markdown(
+                    "- **Top chart** — predicted saturation risk for each hour of the selected day. "
+                    "The red line is your alert threshold.\n"
+                    "- **Bottom chart** — the same hour compared across the five Cotonou hubs.\n\n"
+                    "Hours where the cyan curve crosses the red line are the windows that need a regulation plan."
                 )
 
-        # PERSISTENT LOGS REGISTRY
-        st.markdown("---")
-        st.subheader("📋 Active Municipal Log & Guidelines Archive")
-
-        if st.session_state.recommendation_history:
-            total = len(st.session_state.recommendation_history)
-            for idx, entry in enumerate(st.session_state.recommendation_history):
-                with st.expander(f"Log #{total - idx} — {entry['Location']} ({entry['Status']})", expanded=(idx == 0)):
-                    st.markdown(f"**Algorithmic Traffic Saturation Probability:** `{entry['Risk']}`")
-                    st.write(entry["Details"])
-        else:
-            st.info("No policy logs archived yet. Configure features on the left panel and click 'Run Policy Simulation' to trigger analytical records.")
-
-    # =========================================================================
-    # TAB 2: CORE ENGINEERING & TECHNICAL MODE
-    # =========================================================================
-    with tab2:
-        st.markdown("""
-        ### Production Engineering & Model Diagnostics Workspace
-        This structural space exposes numerical matrix entry arrays, vector columns, and underlying algorithmic boundary conditions.
-        """)
-
-        col_eng_inputs, col_eng_metrics = st.columns(2)
-
-        with col_eng_inputs:
-            st.subheader("Raw Feature Vector")
-            eng_hour = st.slider("Hour", 0, 23, 17, key="e_hour")
-            eng_day = st.slider("Day_of_Week (0=Mon)", 0, 6, 2, key="e_day")
-            eng_zone = st.selectbox("Zone_ID", sorted(zone_profiles.index.tolist()), key="e_zone")
-            eng_rain = st.slider("Rain_mm (mm/h)", 0.0, 30.0, 0.0, 0.5, key="e_rain")
-
-        with col_eng_metrics:
-            st.subheader("Model Output")
-            eng_vector = pd.DataFrame([[eng_hour, eng_day, eng_zone, eng_rain]], columns=FEATURE_COLUMNS)
-            if st.button("Run Diagnostic", key="e_run"):
-                proba = float(model.predict_proba(eng_vector)[0][1]) * 100
-                st.metric("Saturation probability", f"{proba:.1f}%")
-                st.dataframe(eng_vector)
-
-            st.markdown("#### Feature importances")
-            importances = pd.Series(model.feature_importances_, index=FEATURE_COLUMNS).sort_values(ascending=False)
-            st.bar_chart(importances)
-
-        st.markdown("---")
-        st.subheader("🌧️ Météo réelle et validation")
-        m1, m2, m3 = st.columns(3)
-        m1.metric("F1 modèle (test chronologique)", f"{meta['f1_model']:.2f}")
-        m2.metric("F1 référence naïve", f"{meta['f1_baseline']:.2f}")
-        m3.metric("Effet appris d'une forte pluie", f"{meta['rain_effect_points']:+.1f} pts")
-        st.caption(
-            f"Pluie réelle {meta['weather_source']} au point ({meta['weather_lat']}, {meta['weather_lon']}), "
-            f"du {meta['date_start']} au {meta['date_end']} : {meta['rain_hours_share']:.0%} d'heures pluvieuses, "
-            f"{meta['heavy_rain_hours']} heures de forte pluie (≥ {meta['heavy_rain_mm']} mm/h). "
-            f"Entraînement sur {meta['n_train_days']} jours, test sur {meta['n_test_days']} jours."
-        )
-        if meta["heavy_rain_hours"] < 20:
-            st.warning("Très peu d'épisodes de forte pluie dans les données d'entraînement : l'effet appris de la pluie est peu fiable.")
-        if meta["rain_effect_points"] <= 0:
-            st.warning(
-                "L'effet appris d'une forte pluie est nul ou négatif. C'est cohérent avec une demande de courses "
-                "qui évolue avec la météo du lieu d'entraînement, mais cela ne dit rien du comportement de la "
-                "circulation à Cotonou. Ne pas interpréter comme une preuve."
+        # ---------------- Hub map ----------------
+        with tab_map:
+            map_rows = []
+            for name, h in COTONOU_HUBS.items():
+                r = float(predict_risk(model, [selected_hour], day_index, h["zone_id"], rain_mm)[0])
+                if heavy_rain_flag:
+                    r = min(100.0, r + rain_penalty)
+                s, _ = status_of(r, user_crit_threshold)
+                map_rows.append({
+                    "lat": h["lat"], "lon": h["lon"], "Location": name,
+                    "color": {"critical": "#ef4444", "watch": "#facc15", "stable": "#22c55e"}[s],
+                    "size": 160.0 if name == selected_location else 80.0,
+                })
+            st.map(pd.DataFrame(map_rows), latitude="lat", longitude="lon", color="color", size="size", zoom=12)
+            st.caption("🔴 critical · 🟡 watch · 🟢 stable — the selected hub is drawn larger.")
+            st.markdown(
+                f"**{short_name(selected_location)}** — {hub_data['archetype']}  \n"
+                f"{hub_data['criteria']}  \n"
+                f"Matched to training zone **{hub_data['zone_id']}** (profile gap {hub_data['distance']})."
             )
 
-        st.markdown("---")
-        st.subheader("🔗 Transfert Cotonou → zones d'entraînement")
-        st.write(
-            "Chaque site de Cotonou est associé à la zone d'entraînement dont le profil de demande "
-            "(volume, part des heures de pointe, part de nuit) est le plus proche de l'archétype recherché. "
-            "L'affectation est unique (un site = une zone) et calculée à l'entraînement."
-        )
-        mapping_df = pd.DataFrame([
-            {
-                "Site (Cotonou)": name,
-                "Archétype": h["archetype"],
-                "Critère": h["criteria"],
-                "Zone": h["zone_id"],
-                "Rang demande zone": h["zone_demand_rank"],
-                "Part pointe": h["zone_peak_share"],
-                "Part nuit": h["zone_night_share"],
-                "Écart profil": h["distance"],
-            }
-            for name, h in COTONOU_HUBS.items()
-        ])
-        st.dataframe(mapping_df, use_container_width=True, hide_index=True)
+        # ---------------- Action log ----------------
+        with tab_log:
+            head_a, head_b = st.columns([4, 1])
+            head_a.subheader("Municipal log & guidelines archive")
+            head_b.button("Clear log", on_click=clear_log, use_container_width=True)
+            if history:
+                total = len(history)
+                for idx, entry in enumerate(history):
+                    with st.expander(f"Log #{total - idx} — {short_name(entry['Location'])} ({entry['Status']})",
+                                     expanded=(idx == 0)):
+                        st.markdown(f"**Saturation probability:** `{entry['Risk']}` · {entry['When']}")
+                        st.write(entry["Details"])
+            else:
+                st.info("No logs yet. Configure the scenario in the sidebar and press RUN SIMULATION.")
 
-        with st.expander("Profils de toutes les zones d'entraînement"):
-            st.dataframe(zone_profiles, use_container_width=True)
+        # ---------------- Engineering ----------------
+        with tab_eng:
+            st.markdown("**Production engineering & model diagnostics.** Raw feature vectors, model output and "
+                        "the assumptions behind the Cotonou transfer.")
+            col_in, col_out = st.columns(2)
+            with col_in:
+                st.subheader("Raw feature vector")
+                eng_hour = st.slider("Hour", 0, 23, 17, key="e_hour")
+                eng_day = st.slider("Day_of_Week (0 = Mon)", 0, 6, 2, key="e_day")
+                eng_zone = st.selectbox("Zone_ID", sorted(zone_profiles.index.tolist()), key="e_zone")
+                eng_rain = st.slider("Rain_mm (mm/h)", 0.0, 30.0, 0.0, 0.5, key="e_rain")
+            with col_out:
+                st.subheader("Model output")
+                eng_vector = pd.DataFrame([[eng_hour, eng_day, eng_zone, eng_rain]], columns=FEATURE_COLUMNS)
+                if st.button("Run diagnostic", key="e_run"):
+                    proba = float(model.predict_proba(eng_vector)[0][1]) * 100
+                    st.metric("Saturation probability", f"{proba:.1f}%")
+                    st.dataframe(eng_vector)
+                st.markdown("#### Feature importances")
+                importances = pd.Series(model.feature_importances_, index=FEATURE_COLUMNS).sort_values(ascending=False)
+                st.bar_chart(importances, color="#22d3ee")
 
-        st.subheader("Limites")
-        st.markdown(
-            "- Données d'entraînement hors Cotonou : validation locale indispensable.\n"
-            "- La pluie apprise est celle du lieu d'entraînement (climat tempéré) ; son effet sur la circulation tropicale n'est pas démontré.\n"
-            "- La cible mesure une **demande élevée** (top 25 %), pas directement la congestion.\n"
-            "- La prévision météo de Cotonou est réelle, mais elle alimente un modèle appris ailleurs.\n"
-            "- Le modèle reflète des régularités horaires et hebdomadaires, pas l'état instantané du trafic."
-        )
+            st.markdown("---")
+            st.subheader("🌧️ Real weather & validation")
+            m1, m2, m3 = st.columns(3)
+            m1.metric("F1 model (chronological test)", f"{meta['f1_model']:.2f}")
+            m2.metric("F1 naive baseline", f"{meta['f1_baseline']:.2f}")
+            m3.metric("Learned effect of heavy rain", f"{meta['rain_effect_points']:+.1f} pts")
+            st.caption(
+                f"Real rainfall from {meta['weather_source']} at ({meta['weather_lat']}, {meta['weather_lon']}), "
+                f"{meta['date_start']} to {meta['date_end']}: {meta['rain_hours_share']:.0%} rainy hours, "
+                f"{meta['heavy_rain_hours']} hours of heavy rain (≥ {meta['heavy_rain_mm']} mm/h). "
+                f"Trained on {meta['n_train_days']} days, tested on {meta['n_test_days']} days."
+            )
+            if meta["heavy_rain_hours"] < 20:
+                st.warning("Very few heavy-rain episodes in the training data: the learned rain effect is unreliable.")
+            if meta["rain_effect_points"] <= 0:
+                st.warning(
+                    "The learned effect of heavy rain is zero or negative. This is consistent with ride demand that "
+                    "changes with the weather at the training location, but it says nothing about how traffic behaves "
+                    "in Cotonou. Do not read it as evidence."
+                )
 
-    # =========================================================================
-    # TAB 3: FORECAST WITH LAGS (BACKTEST)
-    # =========================================================================
-    with tab3:
-        render_forecast_tab(COTONOU_HUBS)
+            st.markdown("---")
+            st.subheader("🔗 Cotonou → training-zone transfer")
+            st.write(
+                "Each Cotonou hub is matched to the training zone whose demand profile (volume, share of peak hours, "
+                "share of night) is closest to the target archetype. The assignment is one-to-one and computed at training time."
+            )
+            mapping_df = pd.DataFrame([
+                {
+                    "Hub (Cotonou)": name, "Archetype": h["archetype"], "Criteria": h["criteria"],
+                    "Zone": h["zone_id"], "Zone demand rank": h["zone_demand_rank"],
+                    "Peak share": h["zone_peak_share"], "Night share": h["zone_night_share"],
+                    "Profile gap": h["distance"],
+                }
+                for name, h in COTONOU_HUBS.items()
+            ])
+            st.dataframe(mapping_df, use_container_width=True, hide_index=True)
+            with st.expander("Profiles of all training zones"):
+                st.dataframe(zone_profiles, use_container_width=True)
 
-    # =========================================================================
-    # TAB 4: FIELD VALIDATION (COTONOU COUNTS)
-    # =========================================================================
-    with tab4:
-        render_field_tab(COTONOU_HUBS, model, FEATURE_COLUMNS)
+            st.subheader("Limits")
+            st.markdown(
+                "- Training data come from outside Cotonou: local validation is essential.\n"
+                "- The learned rain effect is that of the training location (temperate climate); its effect on tropical traffic is not demonstrated.\n"
+                "- The target measures **high demand** (top 25%), not congestion directly.\n"
+                "- The Cotonou weather forecast is real, but it feeds a model learned elsewhere.\n"
+                "- The model reflects hourly and weekly regularities, not the instantaneous state of traffic."
+            )
+
+        # ---------------- Forecast ----------------
+        with tab_fc:
+            render_forecast_tab(COTONOU_HUBS)
+
+        # ---------------- Field data ----------------
+        with tab_field:
+            render_field_tab(COTONOU_HUBS, model, FEATURE_COLUMNS)
+
+    if open_report:
+        show_guidelines_modal(selected_location, risk, heavy_rain_flag, is_market_day, is_critical, market_multiplier)
 
 except FileNotFoundError:
-    st.error("Fichiers du modèle introuvables. Exécute d'abord `python src/model.py` depuis la racine du projet.")
+    st.error("Model files not found. Run `python src/model.py` from the project root first.")
 except Exception as e:
-    st.error(f"Erreur inattendue : {e}")
+    st.error(f"Unexpected error: {e}")

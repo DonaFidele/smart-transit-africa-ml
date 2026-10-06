@@ -1,4 +1,4 @@
-"""Onglet « Validation terrain » : importer des comptages réalisés à Cotonou."""
+"""Field validation tab: import counts collected in Cotonou."""
 import pandas as pd
 import streamlit as st
 
@@ -9,27 +9,27 @@ from field_validation import (
 
 def render(hubs, model, feature_columns):
     st.markdown("""
-    ### Validation locale par comptages terrain
-    Importe les comptages réalisés à Cotonou (voir `docs/PROTOCOLE_COMPTAGE.md`) pour vérifier deux choses :
-    **(1)** le profil réel de chaque site ressemble-t-il à l'archétype supposé, et
-    **(2)** les probabilités du modèle sont-elles cohérentes avec la saturation observée ?
+    **Local validation with field counts.** Import the counts collected in Cotonou
+    (see `docs/PROTOCOLE_COMPTAGE.md`) to check two things:
+    **(1)** does each site's real profile match its assumed archetype, and
+    **(2)** are the model's probabilities consistent with the saturation actually observed?
     """)
 
     st.download_button(
-        "⬇️ Télécharger le modèle de fichier CSV",
+        "⬇️ Download the CSV template",
         data=template_csv(),
         file_name="field_counts_template.csv",
         mime="text/csv",
     )
-    uploaded = st.file_uploader("Fichier de comptages (CSV)", type=["csv"], key="field_csv")
+    uploaded = st.file_uploader("Field counts file (CSV)", type=["csv"], key="field_csv")
     if uploaded is None:
-        st.info("Aucun fichier importé. Les résultats apparaîtront ici dès l'import de tes comptages.")
+        st.info("No file imported yet. Results will appear here once you upload your counts.")
         return
 
     try:
         raw = pd.read_csv(uploaded, sep=None, engine="python")
     except Exception as exc:
-        st.error(f"Lecture impossible : {exc}")
+        st.error(f"Could not read the file: {exc}")
         return
 
     df, problems = load_counts(raw, hubs)
@@ -38,13 +38,12 @@ def render(hubs, model, feature_columns):
     if df is None:
         return
 
-    n_sites = df["site"].nunique()
-    st.success(f"{len(df)} fenêtres d'observation exploitables sur {n_sites} site(s).")
-    with st.expander("Aperçu des données nettoyées"):
+    st.success(f"{len(df)} usable observation windows across {df['site'].nunique()} site(s).")
+    with st.expander("Preview of cleaned data"):
         st.dataframe(df, use_container_width=True, hide_index=True)
 
-    # ---------------- 1. Profils ----------------
-    st.subheader("1. Le profil observé correspond-il à l'archétype ?")
+    # ---------------- 1. Profiles ----------------
+    st.subheader("1. Does the observed profile match the archetype?")
     prof = observed_profiles(df)
     table, note = compare_with_targets(prof, hubs)
     if table is None:
@@ -52,54 +51,54 @@ def render(hubs, model, feature_columns):
         st.dataframe(prof.round(2), use_container_width=True)
     else:
         view = table[[
-            "n_fenetres", "debit_moyen", "rang_demande_obs", "rang_demande_cible",
-            "rang_pointe_obs", "rang_pointe_cible", "rang_nuit_obs", "rang_nuit_cible",
-            "ecart_moyen", "verdict",
+            "n_windows", "mean_flow", "demand_rank_obs", "demand_rank_target",
+            "peak_rank_obs", "peak_rank_target", "night_rank_obs", "night_rank_target",
+            "mean_gap", "verdict",
         ]].round(2)
         st.dataframe(view, use_container_width=True)
-        st.bar_chart(table["ecart_moyen"].rename("Écart moyen profil observé / cible"))
+        st.bar_chart(table["mean_gap"].rename("Mean gap: observed vs target profile"), color="#22d3ee")
         st.caption(
-            "Les rangs comparent les sites **entre eux** (0 = le plus faible, 1 = le plus fort). "
-            "Écart < 0,25 : cohérent ; 0,25 à 0,40 : partiel ; > 0,40 : divergent. "
-            "Le rang « nuit » n'est calculé que si des créneaux de 22 h à 4 h ont été observés."
+            "Ranks compare sites **with each other** (0 = lowest, 1 = highest). "
+            "Gap < 0.25: consistent; 0.25 to 0.40: partial; > 0.40: divergent. "
+            "The night rank is only computed if 10 pm to 4 am windows were observed."
         )
 
-    # ---------------- 2. Modèle vs saturation observée ----------------
-    st.subheader("2. Le modèle est-il cohérent avec la saturation observée ?")
-    alert_thr = st.slider("Seuil d'alerte (%)", 10, 90, 50, key="field_thr")
+    # ---------------- 2. Model vs observed saturation ----------------
+    st.subheader("2. Is the model consistent with observed saturation?")
+    alert_thr = st.slider("Alert threshold (%)", 10, 90, 50, key="field_thr")
     checked, summary = model_check(df, model, feature_columns, alert_thr)
 
     c1, c2, c3, c4 = st.columns(4)
     if summary["n_labelled"]:
-        c1.metric("Accord alerte / saturation", f"{summary['accuracy']:.0%}")
-        c2.metric("Fausses alertes", summary["false_alarms"])
-        c3.metric("Saturations manquées", summary["missed"])
+        c1.metric("Alert / saturation agreement", f"{summary['accuracy']:.0%}")
+        c2.metric("False alarms", summary["false_alarms"])
+        c3.metric("Missed saturations", summary["missed"])
         c4.metric("AUC", f"{summary['auc']:.2f}" if summary.get("auc") is not None else "n/a")
         st.caption(
-            f"Calculé sur {summary['n_labelled']} fenêtres avec saturation renseignée "
-            f"(dont {summary['n_saturated']} saturées)."
+            f"Computed on {summary['n_labelled']} windows with saturation filled in "
+            f"({summary['n_saturated']} saturated)."
         )
         if summary["n_labelled"] < 30:
-            st.warning("Moins de 30 fenêtres annotées : résultats indicatifs, pas concluants.")
+            st.warning("Fewer than 30 labelled windows: results are indicative, not conclusive.")
         if summary.get("auc") is None:
-            st.info("L'AUC n'est calculable que si les deux situations (saturé / non saturé) ont été observées.")
+            st.info("AUC needs both situations (saturated and not saturated) to have been observed.")
     else:
-        st.info("Aucune valeur de `saturation_observee` renseignée : seul le test de forme est possible.")
+        st.info("No `observed_saturation` values filled in: only the shape check is possible.")
 
     if summary["corr_by_site"]:
-        corr = pd.Series(summary["corr_by_site"], name="Corrélation de rang (débit observé vs probabilité modèle)")
+        corr = pd.Series(summary["corr_by_site"], name="Rank correlation (observed flow vs model probability)")
         st.dataframe(corr.round(2), use_container_width=True)
-        st.caption("Positive : le modèle monte quand le débit réel monte. Sites avec au moins 4 fenêtres seulement.")
+        st.caption("Positive: the model rises when real flow rises. Only sites with at least 4 windows.")
 
-    with st.expander("Détail fenêtre par fenêtre"):
+    with st.expander("Window-by-window detail"):
         st.dataframe(
-            checked[["site", "date", "hour", "flow_per_hour", "pluie_mm", "saturation", "proba_modele"]].round(1),
+            checked[["site", "date", "hour", "flow_per_hour", "rain_mm", "saturation", "model_prob"]].round(1),
             use_container_width=True, hide_index=True,
         )
 
-    st.subheader("Limites")
+    st.subheader("Limits")
     st.markdown(
-        "- Un échantillon de quelques dizaines de fenêtres donne une validation **exploratoire**, pas statistique.\n"
-        "- Le modèle prédit une demande élevée dans le jeu d'entraînement ; la saturation observée est une mesure locale différente.\n"
-        "- Les résultats dépendent de la définition de « saturation » fixée avant le terrain (voir le protocole)."
+        "- A few dozen windows give an **exploratory** validation, not a statistical one.\n"
+        "- The model predicts high demand in the training dataset; observed saturation is a different, local measure.\n"
+        "- Results depend on the definition of “saturation” fixed before fieldwork (see the protocol)."
     )
