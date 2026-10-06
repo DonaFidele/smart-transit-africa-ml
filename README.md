@@ -60,4 +60,3 @@ This prototype serves as a foundation for scalable smart-city infrastructure. It
 ## Author & Credentials
 - **Name:** Dona Fidele Houekpoeha
 - **Credentials:** Verified Specialist in Machine Learning (**Stanford University & DeepLearning.AI**)
-- **Aspirations:** Prospective Candidate for the **Mastercard Foundation Scholars Program at Arizona State University (ASU MCF)**, focusing on leveraging AI and technology innovations to solve critical infrastructure and mobility challenges across the African continent.
