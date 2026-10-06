@@ -1,0 +1,15 @@
+{
+  "weather_source": "Open-Meteo (archive)",
+  "weather_lat": 40.74,
+  "weather_lon": -73.977,
+  "date_start": "2014-04-01",
+  "date_end": "2014-04-30",
+  "heavy_rain_mm": 7.6,
+  "rain_hours_share": 0.151,
+  "heavy_rain_hours": 0,
+  "rain_effect_points": 3.13,
+  "f1_model": 0.926,
+  "f1_baseline": 0.913,
+  "n_train_days": 24,
+  "n_test_days": 6
+}
