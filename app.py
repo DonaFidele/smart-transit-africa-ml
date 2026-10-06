@@ -26,9 +26,9 @@ try:
     # =========================================================================
     with tab1:
         st.markdown("""
-        ### Strategic Technology Transfer Demonstration
-        This profile projects behavior simulation layers onto the infrastructure network of **Cotonou, Benin**. 
-        It filters complex machine learning inferences into operational insights for municipal authorities and non-technical stakeholders.
+        ### Strategic Technology Transfer & Prescriptive Urban Planning
+        This profile projects behavioral simulation layers onto the infrastructure network of **Cotonou, Benin**. 
+        It transforms machine learning inferences into operational triggers and actionable municipal policies.
         """)
         
         COTONOU_HUBS = {
@@ -39,6 +39,12 @@ try:
             "Zone Portuaire / Akpakpa (Logistics Hub)": {"lat": 6.3650, "lon": 2.4490, "zone_id": 12}
         }
         
+        # User customization of trigger limits for advanced resilience planning
+        with st.sidebar.expander("⚙️ Customize AI Trigger Thresholds", expanded=False):
+            st.markdown("_Fine-tune decision parameters for Cotonou municipal rules:_")
+            user_crit_threshold = st.slider("Critical Alert Threshold (%)", 40, 95, 50, help="Probability threshold to trigger emergency municipal actions.")
+            market_multiplier = st.checkbox("Prioritize Marketplace Logistics", value=True, help="Force higher urgency ratings near Dantokpa / Port areas.")
+
         c1, c2 = st.columns(2)
         with c1:
             st.subheader("Socio-Environmental Stressors")
@@ -59,18 +65,17 @@ try:
         with c2:
             st.subheader("Geospatial Node Tracking")
             
-            # Pre-compute inference vector to dynamically color code the map marker
             input_data = pd.DataFrame([[selected_hour, day_index, hub_data["zone_id"], is_market_day, heavy_rain_flag]], 
                                      columns=["Hour", "Day_of_Week", "Zone_ID", "Local_Market_Day", "Heavy_Rain"])
             
             probability = model.predict_proba(input_data)
             prediction = model.predict(input_data)
             
-            # Target precisely the probability of Class 1 (Saturation Risk)
             saturation_risk_percentage = probability[0][1] * 100
             
-            # Dynamic Hex Colors: Red for critical gridlock risk (>50%), Green for optimal traffic flow
-            map_color = "#FF0000" if prediction == 1 else "#00FF00"
+            # Dynamic map code coloring adjusted to user-defined threshold
+            is_critical = saturation_risk_percentage >= user_crit_threshold
+            map_color = "#FF0000" if is_critical else "#00FF00"
             
             map_df = pd.DataFrame([{
                 "lat": hub_data["lat"], 
@@ -81,32 +86,34 @@ try:
             
             st.map(map_df, latitude="lat", longitude="lon", color="color", zoom=13)
             
-            st.subheader("Operational Risk Output")
-            if run_c_sim:
-                if prediction == 1:
-                    st.error(f"🔴 **CRITICAL SATURATION ALERT ({saturation_risk_percentage:.1f}% Congestion Risk)**")
-                    st.markdown(f"""
-                    **Executive Summary for {selected_location}:**  
-                    The predictive model indicates a severe threat of systemic gridlock. The compounding effect of the selected temporal window and environmental stressors exceeds the infrastructure's absorption threshold.
+            # 1. Pop-up implementation for Guidelines (Modal View approach using st.dialog)
+            @st.dialog("📋 Urban Planning & Traffic Mitigation Guidelines", width="large")
+            def show_guidelines_popup(loc, risk, rain, market):
+                st.write(f"### Prescriptive Action Report for: **{loc}**")
+                
+                if risk >= user_crit_threshold:
+                    st.error(f"🚨 **CRITICAL CONGESTION RISK DETECTED: {risk:.1f}%**")
                     
-                    **Analytical Breakdown:**
-                    - **Socio-Economic Catalyst:** The structural traffic baseline is heavily congested.
-                    - **Environmental Impact:** Heavy rainfall or localized flash floods have critically reduced free-flow vehicle velocity, accelerating network decay.
-                    - **Mitigation Recommendation:** Immediate deployment of traffic traffic wardens or automated proactive dynamic routing signaling is highly advised for this corridor.
-                    """)
+                    st.markdown("#### 1. Short-Term Traffic Management Actions (Immediate)")
+                    st.markdown(f"- **Traffic Warden Deployment:** Dispatch immediate manual support units to **{loc}** to fluidify structural bottlenecks before gridlock cascades.")
+                    st.markdown("- **Signal Synchronization:** Adjust smart signal green-light extensions (+45 seconds) along the main structural approaches.")
+                    
+                    st.markdown("#### 2. Long-Term Urban Planning Interventions (Infrastructure Investment)")
+                    if rain == 1:
+                        st.markdown("- **Climate Resilience Infrastructure:** This zone shows rapid vulnerability to downpours. Prioritize drainage network curage and expanding storm-water collectors in the current municipal budget.")
+                    if market == 1 or (market_multiplier and "Dantokpa" in loc):
+                        st.markdown("- **Logistical Decoupling:** Marketplace loading zones are oversaturating transit tracks. Plan a decentralized off-dock logistical hub to move freight handling outside peak hours.")
                 else:
-                    st.success(f"🟢 **OPERATIONAL FLOW STABLE ({saturation_risk_percentage:.1f}% Congestion Risk)**")
-                    st.markdown(f"""
-                    **Executive Summary for {selected_location}:**  
-                    Urban mobility flow remains within safe, elastic parameters. The risk of major delays or systemic network saturation is minimal.
-                    
-                    **Analytical Breakdown:**
-                    - **Structural Capacity:** The network retains sufficient geometric elasticity to seamlessly absorb current local transit demands.
-                    - **Stress Test Status:** Even under potential climate stressors, the selected time frame avoids critical peak accumulation curves.
-                    - **Operational Advice:** Normal municipal operations can proceed. No emergency deployment required.
-                    """)
-            else:
-                st.info("ℹ️ Click the button on the left panel to execute the predictive engine and generate the analytical breakdown.")
+                    st.success(f"🟢 **STABLE FLOW CONDITIONS CONFIRMED: {risk:.1f}% RISK**")
+                    st.markdown("#### Baseline Operations Guidelines")
+                    st.markdown("- **Routine Monitoring:** No emergency asset deployment required. Maintain camera telemetry routing protocols.")
+                    st.markdown("- **Elastic Capacity Status:** The corridor retains safe geometric absorption parameters for the simulated time envelope.")
+                
+                st.info("Dismiss or close this window to return to the interactive tracking map.")
+
+            # Trigger pop-up instantly upon computation click
+            if run_c_sim:
+                show_guidelines_popup(selected_location, saturation_risk_percentage, heavy_rain_flag, is_market_day)
 
     # =========================================================================
     # TAB 2: CORE ENGINEERING & TECHNICAL MODE (RAW DATA)
@@ -114,15 +121,14 @@ try:
     with tab2:
         st.markdown("""
         ### Production Engineering & Model Diagnostics
-        This profile exposes direct matrix inputs, feature spaces, and mathematical evaluation thresholds. 
-        Ideal for validating pipeline integrity, troubleshooting overfitting, and reading underlying probabilities.
+        This profile exposes direct matrix inputs, feature spaces, and mathematical evaluation thresholds.
         """)
         
         e1, e2 = st.columns(2)
         with e1:
             st.subheader("Raw Mathematical Vectors")
             raw_hour = st.slider("Feature: Hour (0-23)", 0, 23, 17, key="e_hour")
-            raw_day = st.slider("Feature: Day_of_Week (0-6)", 0, 6, 3, help="0=Monday, 6=Sunday")
+            raw_day = st.slider("Feature: Day_of_Week (0-6)", 0, 6, 3)
             raw_zone = st.number_input("Feature: Zone_ID (K-Means Cluster Index)", min_value=0, max_value=14, value=1)
             
             st.markdown("---")
@@ -133,7 +139,6 @@ try:
             
         with e2:
             st.subheader("Matrix Execution & Output Array")
-            
             feature_vector = pd.DataFrame([[raw_hour, raw_day, raw_zone, int(raw_market), int(raw_rain)]],
                                          columns=["Hour", "Day_of_Week", "Zone_ID", "Local_Market_Day", "Heavy_Rain"])
             
@@ -147,12 +152,12 @@ try:
                 st.markdown("**Scikit-Learn Classifier Diagnostics:**")
                 st.json({
                     "Model_Type": "RandomForestClassifier(n_estimators=150, max_depth=14)",
-                    "Output_Class_Label": int(raw_pred),
+                    "Output_Class_Label": int(raw_pred[0]),
                     "Probability_Distribution": {
                         "Class_0 (Fluid)": float(raw_prob[0][0]),
                         "Class_1 (Saturated)": float(raw_prob[0][1])
                     },
-                    "Active_Decision_Threshold": "Quantile 0.75 Adaptive Gridlock Aggregation"
+                    "Active_Decision_Threshold": f"User-Controlled Trigger ({user_crit_threshold}%)"
                 })
 
 except FileNotFoundError:
