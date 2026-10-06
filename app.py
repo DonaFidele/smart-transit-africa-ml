@@ -52,8 +52,8 @@ try:
             days = ["Monday", "Tuesday", "Wednesday (Dantokpa Market Day)", "Thursday", "Friday", "Saturday (Market Day)", "Sunday"]
             selected_day = st.selectbox("Day of the Week (Cotonou)", days)
             day_index = days.index(selected_day)
-            is_market_day = 1 if day_index in else 0
-            
+            is_market_day = 1 if day_index in [2, 5] else 0
+
             selected_hour = st.slider("Commuting Window Hour", 0, 23, 17, key="c_hour")
             weather_condition = st.radio("Precipitation Intensity Index", ["Dry Conditions", "Heavy Downpour / Flash Floods"])
             heavy_rain_flag = 1 if weather_condition == "Heavy Downpour / Flash Floods" else 0
