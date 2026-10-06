@@ -103,6 +103,7 @@ def map_hubs_to_zones(profiles):
             "lon": hub["lon"],
             "archetype": hub["archetype"],
             "criteria": hub["why"],
+            "target": hub["target"],
             "zone_id": int(z),
             "distance": round(float(cost[i, j]), 3),
             "zone_demand_rank": round(float(profiles.loc[z, "demand_rank"]), 2),

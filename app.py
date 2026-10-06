@@ -8,6 +8,8 @@ import streamlit as st
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "src"))
 from weather import fetch_forecast, HEAVY_RAIN_MM  # noqa: E402
+from forecast_tab import render as render_forecast_tab  # noqa: E402
+from field_tab import render as render_field_tab  # noqa: E402
 
 st.set_page_config(page_title="SmartTransit Platform", layout="wide")
 
@@ -107,9 +109,11 @@ try:
         "pas une prévision validée pour Cotonou."
     )
 
-    tab1, tab2 = st.tabs([
+    tab1, tab2, tab3, tab4 = st.tabs([
         "📊 Public Policy & Decision Mode (Cotonou Hubs)",
         "🔬 Core Engineering & Model Diagnostics (Raw Data)",
+        "📈 Forecast with Lags (Backtest)",
+        "🧪 Field Validation (Cotonou Counts)",
     ])
 
     # =========================================================================
@@ -331,6 +335,18 @@ try:
             "- La prévision météo de Cotonou est réelle, mais elle alimente un modèle appris ailleurs.\n"
             "- Le modèle reflète des régularités horaires et hebdomadaires, pas l'état instantané du trafic."
         )
+
+    # =========================================================================
+    # TAB 3: FORECAST WITH LAGS (BACKTEST)
+    # =========================================================================
+    with tab3:
+        render_forecast_tab(COTONOU_HUBS)
+
+    # =========================================================================
+    # TAB 4: FIELD VALIDATION (COTONOU COUNTS)
+    # =========================================================================
+    with tab4:
+        render_field_tab(COTONOU_HUBS, model, FEATURE_COLUMNS)
 
 except FileNotFoundError:
     st.error("Fichiers du modèle introuvables. Exécute d'abord `python src/model.py` depuis la racine du projet.")

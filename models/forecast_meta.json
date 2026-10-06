@@ -1,0 +1,87 @@
+{
+  "date_start": "2014-04-01",
+  "date_end": "2014-04-30",
+  "cut_date": "2014-04-25",
+  "threshold": 16.0,
+  "features": [
+    "Hour",
+    "Day_of_Week",
+    "Zone_ID",
+    "Rain_mm",
+    "lag_h",
+    "lag_h1",
+    "lag_h2",
+    "roll24",
+    "same_hour_yesterday"
+  ],
+  "horizons": {
+    "1": {
+      "n_test": 2160,
+      "model": {
+        "f1": 0.909,
+        "precision": 0.904,
+        "recall": 0.913
+      },
+      "static": {
+        "f1": 0.891,
+        "precision": 0.975,
+        "recall": 0.821
+      },
+      "persistence": {
+        "f1": 0.875,
+        "precision": 0.874,
+        "recall": 0.876
+      },
+      "same_hour_yesterday": {
+        "f1": 0.826,
+        "precision": 0.832,
+        "recall": 0.821
+      },
+      "importances": {
+        "Hour": 0.04,
+        "Day_of_Week": 0.019,
+        "Zone_ID": 0.019,
+        "Rain_mm": 0.005,
+        "lag_h": 0.336,
+        "lag_h1": 0.093,
+        "lag_h2": 0.078,
+        "roll24": 0.188,
+        "same_hour_yesterday": 0.222
+      }
+    },
+    "24": {
+      "n_test": 2160,
+      "model": {
+        "f1": 0.9,
+        "precision": 0.909,
+        "recall": 0.89
+      },
+      "static": {
+        "f1": 0.894,
+        "precision": 0.975,
+        "recall": 0.826
+      },
+      "persistence": {
+        "f1": 0.826,
+        "precision": 0.832,
+        "recall": 0.821
+      },
+      "same_hour_yesterday": {
+        "f1": 0.826,
+        "precision": 0.832,
+        "recall": 0.821
+      },
+      "importances": {
+        "Hour": 0.048,
+        "Day_of_Week": 0.037,
+        "Zone_ID": 0.026,
+        "Rain_mm": 0.007,
+        "lag_h": 0.242,
+        "lag_h1": 0.129,
+        "lag_h2": 0.093,
+        "roll24": 0.175,
+        "same_hour_yesterday": 0.243
+      }
+    }
+  }
+}
