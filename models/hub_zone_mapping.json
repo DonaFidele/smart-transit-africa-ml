@@ -1,0 +1,57 @@
+{
+  "Échangeur de Godomey (West Gateway)": {
+    "lat": 6.3811,
+    "lon": 2.3522,
+    "archetype": "Porte d'entrée / flux pendulaires",
+    "criteria": "Flux dominé par les trajets domicile-travail : forte part d'heures de pointe, peu d'activité nocturne.",
+    "zone_id": 3,
+    "distance": 0.1,
+    "zone_demand_rank": 0.6,
+    "zone_peak_share": 0.402,
+    "zone_night_share": 0.114
+  },
+  "Grand Marché de Dantokpa (Commercial Hub)": {
+    "lat": 6.3708,
+    "lon": 2.4344,
+    "archetype": "Pôle commercial",
+    "criteria": "Plus forte demande du réseau, activité concentrée en journée.",
+    "zone_id": 1,
+    "distance": 0.34,
+    "zone_demand_rank": 1.0,
+    "zone_peak_share": 0.46,
+    "zone_night_share": 0.106
+  },
+  "Carrefour Vèdoko (Central Junction)": {
+    "lat": 6.3754,
+    "lon": 2.3881,
+    "archetype": "Carrefour central",
+    "criteria": "Forte demande, pointes marquées et activité soutenue en soirée.",
+    "zone_id": 0,
+    "distance": 0.252,
+    "zone_demand_rank": 0.87,
+    "zone_peak_share": 0.396,
+    "zone_night_share": 0.183
+  },
+  "Carrefour Cadjehoun (Avenue Jean-Paul II)": {
+    "lat": 6.3575,
+    "lon": 2.398,
+    "archetype": "Axe urbain mixte",
+    "criteria": "Demande moyenne, répartition équilibrée sur la journée avec une vie nocturne notable.",
+    "zone_id": 12,
+    "distance": 0.163,
+    "zone_demand_rank": 0.73,
+    "zone_peak_share": 0.382,
+    "zone_night_share": 0.167
+  },
+  "Zone Portuaire / Akpakpa (Logistics Hub)": {
+    "lat": 6.365,
+    "lon": 2.449,
+    "archetype": "Hub logistique",
+    "criteria": "Demande modérée, activité diurne régulière sans pointes pendulaires, très peu de nuit.",
+    "zone_id": 10,
+    "distance": 0.397,
+    "zone_demand_rank": 0.2,
+    "zone_peak_share": 0.375,
+    "zone_night_share": 0.16
+  }
+}
