@@ -1,6 +1,6 @@
 # SmartTransit Africa: Hybrid Machine Learning for Urban Mobility Optimization
 
-[![Streamlit App](https://streamlit.io)](YOUR_STREAMLIT_APP_LINK_HERE)
+[![Streamlit App](https://streamlit.io)](https://smart-transit-africa.streamlit.app/)
 
 ## Vision & Problem Statement
 Rapidly growing African metropolises face massive economic losses and environmental challenges due to severe traffic congestion. 
