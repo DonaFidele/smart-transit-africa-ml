@@ -20,7 +20,9 @@ import evaluate  # noqa: E402
 import field_validation as fv  # noqa: E402
 import sensitivity  # noqa: E402
 import weather  # noqa: E402
-from forecast_features import FEATURES, LAG_FEATURES, build_features  # noqa: E402
+from forecast_features import (  # noqa: E402
+    FEATURES, FEATURES_REL, LAG_FEATURES, REL_LAG_FEATURES, build_features, build_relative_features,
+)
 
 HUBS = {
     "Échangeur de Godomey (West Gateway)": {"zone_id": 3, "target": {"demand": 0.6, "peak_share": 0.9, "night_share": 0.2}},
@@ -56,6 +58,35 @@ def test_feature_columns_are_consistent():
     feats = build_features(synthetic_history(), horizon=1)
     assert all(c in feats.columns for c in FEATURES)
     assert len(FEATURES) == 4 + len(LAG_FEATURES)
+
+
+def test_relative_features_use_train_baseline_and_only_the_past():
+    history = synthetic_history()
+    baseline = history.groupby(["Zone_ID", history["time"].dt.hour])["Demand_Volume"].mean()
+    feats = build_relative_features(history, horizon=3, baseline=baseline)
+    z0 = feats[feats["Zone_ID"] == 0].reset_index(drop=True)
+    usual = baseline.loc[0].reindex(z0["Hour"]).to_numpy()
+    expected_ratio = (z0["Demand_Volume"].to_numpy() + 1) / (usual + 1)
+    assert np.allclose(z0["ratio"], expected_ratio)
+    assert z0["rel_lag_h"].iloc[10] == pytest.approx(z0["ratio"].iloc[7])           # t-3
+    assert z0["rel_same_hour_yesterday"].iloc[30] == pytest.approx(z0["ratio"].iloc[6])  # t-24
+    assert len(FEATURES_REL) == 4 + len(REL_LAG_FEATURES)
+
+
+def test_relative_target_is_less_zone_dependent_than_absolute():
+    # Two zones with very different levels but the same daily shape: the absolute target is mostly
+    # "which zone", the relative target (ratio to the zone's own level) is not.
+    rng = np.random.default_rng(3)
+    times = pd.date_range("2026-01-01", periods=20 * 24, freq="h")
+    frames = [pd.DataFrame({"time": times, "Zone_ID": z, "Demand_Volume": rng.poisson(level), "Rain_mm": 0.0})
+              for z, level in [(0, 5), (1, 50)]]
+    history = pd.concat(frames, ignore_index=True)
+    baseline = history.groupby(["Zone_ID", history["time"].dt.hour])["Demand_Volume"].mean()
+    rel = build_relative_features(history, 1, baseline).dropna(subset=REL_LAG_FEATURES)
+    absolute = build_features(history, 1).dropna(subset=LAG_FEATURES)
+    gap_abs = absolute.groupby("Zone_ID")["Demand_Volume"].mean().diff().abs().iloc[-1]
+    gap_rel = rel.groupby("Zone_ID")["ratio"].mean().diff().abs().iloc[-1]
+    assert gap_abs > 20 and gap_rel < 0.2
 
 
 # ----------------------------------------------------------------------------
@@ -165,6 +196,18 @@ def test_reliability_of_perfectly_calibrated_probabilities():
     assert ece == pytest.approx(0.0, abs=1e-9)
 
 
+def test_evaluate_horizon_runs_for_both_targets():
+    evaluate.N_BOOT = 40  # keep the test fast
+    history = synthetic_history(n_days=16, zones=(0, 1, 2, 3))
+    history["Rain_mm"] = np.random.default_rng(1).gamma(1, 1, len(history)) * (np.arange(len(history)) % 7 == 0)
+    for target in evaluate.TARGETS:
+        res = evaluate.evaluate_horizon(history, 1, target)
+        names = {r["model"] for r in res["models"]}
+        assert evaluate.NO_SKILL in names and evaluate.BASELINE in names
+        assert 0.0 <= res["prevalence"] <= 1.0
+        assert set(res["zone_swap"]) == {evaluate.RF_LAGS, evaluate.RF_NOLAGS}
+
+
 # ----------------------------------------------------------------------------
 # Weather module (offline part only)
 # ----------------------------------------------------------------------------
@@ -197,4 +240,3 @@ def test_hub_mapping_is_one_to_one_with_targets():
     zones = [h["zone_id"] for h in hubs.values()]
     assert len(zones) == len(set(zones)) == 5
     assert all("target" in h for h in hubs.values())
-    
