@@ -1,0 +1,71 @@
+{
+  "noise_sd": 0.15,
+  "n_sim": 1000,
+  "alert_threshold": 50.0,
+  "rain_levels_mm": [
+    0.0,
+    10.0
+  ],
+  "hubs": [
+    {
+      "hub": "Échangeur de Godomey (West Gateway)",
+      "assigned_zone": 3,
+      "runner_up_zone": 9,
+      "avg_shift_any_zone_pts": 23.07,
+      "alert_flip_any_zone_pct": 21.9,
+      "shift_vs_runner_up_pts": 51.68,
+      "alert_flip_vs_runner_up_pct": 58.0,
+      "stability_pct": 58.9,
+      "expected_shift_noise_pts": 18.22,
+      "verdict": "moderate"
+    },
+    {
+      "hub": "Grand Marché de Dantokpa (Commercial Hub)",
+      "assigned_zone": 1,
+      "runner_up_zone": 12,
+      "avg_shift_any_zone_pts": 57.23,
+      "alert_flip_any_zone_pct": 57.8,
+      "shift_vs_runner_up_pts": 63.35,
+      "alert_flip_vs_runner_up_pct": 63.7,
+      "stability_pct": 60.1,
+      "expected_shift_noise_pts": 22.75,
+      "verdict": "moderate"
+    },
+    {
+      "hub": "Carrefour Vèdoko (Central Junction)",
+      "assigned_zone": 0,
+      "runner_up_zone": 12,
+      "avg_shift_any_zone_pts": 58.58,
+      "alert_flip_any_zone_pct": 59.0,
+      "shift_vs_runner_up_pts": 65.07,
+      "alert_flip_vs_runner_up_pct": 65.2,
+      "stability_pct": 41.7,
+      "expected_shift_noise_pts": 28.08,
+      "verdict": "fragile"
+    },
+    {
+      "hub": "Carrefour Cadjehoun (Avenue Jean-Paul II)",
+      "assigned_zone": 12,
+      "runner_up_zone": 2,
+      "avg_shift_any_zone_pts": 23.83,
+      "alert_flip_any_zone_pct": 24.5,
+      "shift_vs_runner_up_pts": 10.57,
+      "alert_flip_vs_runner_up_pct": 9.5,
+      "stability_pct": 25.7,
+      "expected_shift_noise_pts": 17.24,
+      "verdict": "fragile"
+    },
+    {
+      "hub": "Zone Portuaire / Akpakpa (Logistics Hub)",
+      "assigned_zone": 10,
+      "runner_up_zone": 6,
+      "avg_shift_any_zone_pts": 22.04,
+      "alert_flip_any_zone_pct": 21.6,
+      "shift_vs_runner_up_pts": 4.62,
+      "alert_flip_vs_runner_up_pct": 1.5,
+      "stability_pct": 32.2,
+      "expected_shift_noise_pts": 2.36,
+      "verdict": "moderate"
+    }
+  ]
+}
