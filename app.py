@@ -2,7 +2,7 @@ import json
 import os
 import pickle
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pandas as pd
 import streamlit as st
@@ -125,7 +125,10 @@ def show_guidelines_modal(loc, risk, rain, market, critical_flag, market_mult):
         st.write("No emergency intervention required in this sector. Maintain routine monitoring and road telemetry through the municipal cameras.")
         st.write("- **Status:** The infrastructure corridor retains enough geometric elasticity to handle current transit velocity curves.")
 
-    st.caption("⚠️ Simulation from a demonstration model (method transfer). Field validation is required before any operational decision.")
+    if st.session_state.get("is_direct"):
+        st.caption("⚠️ Simulation from a model trained on local measurements. Check data coverage and quality before any operational decision.")
+    else:
+        st.caption("⚠️ Simulation from a demonstration model (method transfer). Field validation is required before any operational decision.")
     st.info("Close this pop-up to see the new entry in the Action Log tab.")
 
 
@@ -163,6 +166,9 @@ try:
         st.stop()
 
     hub_names = list(COTONOU_HUBS.keys())
+    is_direct = meta.get("transfer_mode", "profile_matching") == "direct"
+    source_name = meta.get("source_name", "public mobility dataset")
+    st.session_state["is_direct"] = is_direct
 
     # ========================================================================
     # SIDEBAR : controls
@@ -275,14 +281,21 @@ try:
     theme.render(theme.header(
         "SmartTransit Africa",
         ["v3.0", "COTONOU · BENIN", "Hourly risk"],
-        f"Urban congestion risk lab · {datetime.utcnow():%d %b %Y %H:%M} UTC",
+        f"Urban congestion risk lab · {datetime.now(timezone.utc):%d %b %Y %H:%M} UTC",
     ))
-    theme.render(theme.note(
-        "Demonstration prototype (method transfer). The model is trained on a public mobility dataset from outside "
-        "Cotonou, with the real rainfall observed at that place and dates. Each Cotonou hub is matched to the training "
-        "zone whose demand profile resembles it most. Results illustrate the data → model → decision chain and are not "
-        "a validated forecast for Cotonou."
-    ))
+    if is_direct:
+        theme.render(theme.note(
+            f"The model is trained on local measurements ({source_name}), with the real rainfall observed at the same "
+            "place and dates. Each hub is its own zone. Check the period covered, the sensor quality and the number of "
+            "heavy-rain hours before relying on the results for operational decisions."
+        ))
+    else:
+        theme.render(theme.note(
+            "Demonstration prototype (method transfer). The model is trained on a public mobility dataset from outside "
+            "Cotonou, with the real rainfall observed at that place and dates. Each Cotonou hub is matched to the training "
+            "zone whose demand profile resembles it most. Results illustrate the data → model → decision chain and are not "
+            "a validated forecast for Cotonou."
+        ))
 
     strip = st.columns(5)
     strip[0].markdown(theme.card("Selected hub", short_name(selected_location), hub_data["archetype"], C["cyan"]),
@@ -294,8 +307,12 @@ try:
                                  C["cyan"] if rain_mm >= 0.1 else C["muted"]), unsafe_allow_html=True)
     strip[3].markdown(theme.card("Alert status", status.upper(), f"threshold {user_crit_threshold}%", status_color),
                       unsafe_allow_html=True)
-    strip[4].markdown(theme.card("Training analogue", f"Zone {hub_data['zone_id']}",
-                                 f"profile gap {hub_data['distance']}", C["purple"]), unsafe_allow_html=True)
+    if is_direct:
+        strip[4].markdown(theme.card("Data source", f"Zone {hub_data['zone_id']}", "measured locally", C["green"]),
+                          unsafe_allow_html=True)
+    else:
+        strip[4].markdown(theme.card("Training analogue", f"Zone {hub_data['zone_id']}",
+                                     f"profile gap {hub_data['distance']}", C["purple"]), unsafe_allow_html=True)
 
     if status == "critical":
         banner = theme.banner(
@@ -393,10 +410,12 @@ try:
                 })
             st.map(pd.DataFrame(map_rows), latitude="lat", longitude="lon", color="color", size="size", zoom=12)
             st.caption("🔴 critical · 🟡 watch · 🟢 stable — the selected hub is drawn larger.")
+            match_line = (f"Measured locally as zone **{hub_data['zone_id']}**." if is_direct else
+                          f"Matched to training zone **{hub_data['zone_id']}** (profile gap {hub_data['distance']}).")
             st.markdown(
                 f"**{short_name(selected_location)}** — {hub_data['archetype']}  \n"
                 f"{hub_data['criteria']}  \n"
-                f"Matched to training zone **{hub_data['zone_id']}** (profile gap {hub_data['distance']})."
+                f"{match_line}"
             )
 
         # ---------------- Action log ----------------
@@ -451,18 +470,30 @@ try:
             if meta["heavy_rain_hours"] < 20:
                 st.warning("Very few heavy-rain episodes in the training data: the learned rain effect is unreliable.")
             if meta["rain_effect_points"] <= 0:
-                st.warning(
-                    "The learned effect of heavy rain is zero or negative. This is consistent with ride demand that "
-                    "changes with the weather at the training location, but it says nothing about how traffic behaves "
-                    "in Cotonou. Do not read it as evidence."
-                )
+                if is_direct:
+                    st.warning(
+                        "The learned effect of heavy rain is zero or negative. With local data this may reflect too few "
+                        "heavy-rain hours in the period, or a measure that does not react to rain. Check the heavy-rain "
+                        "hours above before drawing conclusions."
+                    )
+                else:
+                    st.warning(
+                        "The learned effect of heavy rain is zero or negative. This is consistent with ride demand that "
+                        "changes with the weather at the training location, but it says nothing about how traffic behaves "
+                        "in Cotonou. Do not read it as evidence."
+                    )
 
             st.markdown("---")
-            st.subheader("🔗 Cotonou → training-zone transfer")
-            st.write(
-                "Each Cotonou hub is matched to the training zone whose demand profile (volume, share of peak hours, "
-                "share of night) is closest to the target archetype. The assignment is one-to-one and computed at training time."
-            )
+            if is_direct:
+                st.subheader("📍 Local zones")
+                st.write("The model is trained on measurements taken in Cotonou itself: each hub is its own zone, "
+                         "so no profile matching is involved.")
+            else:
+                st.subheader("🔗 Cotonou → training-zone transfer")
+                st.write(
+                    "Each Cotonou hub is matched to the training zone whose demand profile (volume, share of peak hours, "
+                    "share of night) is closest to the target archetype. The assignment is one-to-one and computed at training time."
+                )
             mapping_df = pd.DataFrame([
                 {
                     "Hub (Cotonou)": name, "Archetype": h["archetype"], "Criteria": h["criteria"],
@@ -472,8 +503,10 @@ try:
                 }
                 for name, h in COTONOU_HUBS.items()
             ])
+            if is_direct:
+                mapping_df = mapping_df.drop(columns=["Profile gap"])
             st.dataframe(mapping_df, use_container_width=True, hide_index=True)
-            with st.expander("Profiles of all training zones"):
+            with st.expander("Profiles of all zones"):
                 st.dataframe(zone_profiles, use_container_width=True)
 
             eval_path = "models/evaluation_results.json"
@@ -510,7 +543,7 @@ try:
                            "Generated by `python src/evaluate.py`.")
 
             sens_path = "models/sensitivity_results.json"
-            if os.path.exists(sens_path):
+            if (not is_direct) and os.path.exists(sens_path):
                 st.markdown("---")
                 st.subheader("🎚️ Sensitivity of the Cotonou → zone transfer")
                 with open(sens_path, "r", encoding="utf-8") as f:
@@ -526,13 +559,21 @@ try:
                            "zone. Generated by `python src/sensitivity.py`.")
 
             st.subheader("Limits")
-            st.markdown(
-                "- Training data come from outside Cotonou: local validation is essential.\n"
-                "- The learned rain effect is that of the training location (temperate climate); its effect on tropical traffic is not demonstrated.\n"
-                "- The target measures **high demand** (top 25%), not congestion directly.\n"
-                "- The Cotonou weather forecast is real, but it feeds a model learned elsewhere.\n"
-                "- The model reflects hourly and weekly regularities, not the instantaneous state of traffic."
-            )
+            if is_direct:
+                limit_lines = [
+                    f"- Training data come from local measurements ({source_name}): coverage, sensor quality and period matter.",
+                    "- The learned rain effect depends on how many heavy-rain hours the local period contains.",
+                    "- The target is the top 25% of the measured load: check that it reflects congestion for your measure.",
+                ]
+            else:
+                limit_lines = [
+                    "- Training data come from outside Cotonou: local validation is essential.",
+                    "- The learned rain effect is that of the training location (temperate climate); its effect on tropical traffic is not demonstrated.",
+                    "- The target measures **high demand** (top 25%), not congestion directly.",
+                    "- The Cotonou weather forecast is real, but it feeds a model learned elsewhere.",
+                ]
+            limit_lines.append("- The model reflects hourly and weekly regularities, not the instantaneous state of traffic.")
+            st.markdown("\n".join(limit_lines))
 
         # ---------------- Forecast ----------------
         with tab_fc:

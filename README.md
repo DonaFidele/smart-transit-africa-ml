@@ -1,62 +1,105 @@
-# SmartTransit Africa: Hybrid Machine Learning for Urban Mobility Optimization
+# SmartTransit Africa – Urban Congestion Risk Lab (Cotonou)
 
 [![SmartTransit Africa App](https://streamlit.io)](https://smart-transit-africa.streamlit.app/)
+A decision-support prototype that estimates the risk of traffic saturation at five hubs of Cotonou, Benin,
+and turns it into prescriptive recommendations (drainage, traffic regulation, logistics policy).
 
-## Vision & Problem Statement
-Rapidly growing African metropolises face massive economic losses and environmental challenges due to severe traffic congestion. 
-This project introduces a **predictive decision-support prototype** for urban planning. While trained on a massive volume of real-world transit data (Uber TLC), the data pipeline uniquely integrates contextual features tailored to emerging markets: **local market-day economic cycles** and **heavy rainy season disruptions**.
+> **Status: demonstration prototype (method transfer).**
+> No mobility data from Cotonou was available. The models are trained on a public urban-mobility dataset from
+> outside Cotonou, with the **real rainfall** observed at that place and dates (Open-Meteo). Each Cotonou hub is
+> matched to the training zone whose demand profile resembles its archetype. The results illustrate the
+> *data → model → decision* chain; they are **not a validated forecast for Cotonou**. Local validation with field
+> counts is built into the project (see below).
 
-## Algorithmic Architecture (Stanford & DeepLearning.AI Validation)
-This framework connects key machine learning pillars mastered during my **Stanford & DeepLearning.AI** specialization:
+## What is inside
 
-1. **Unsupervised Clustering (K-Means):** Instead of relying on static administrative boundaries, the algorithm dynamically maps the urban space into `K=15` high-activity transport hubs based on millions of geospatial coordinates (Latitude, Longitude).
-2. **Contextual Feature Engineering:** Extraction of cyclical time components (Hours, Days) and injection of synthesized socio-economic factors (market days) and weather intensities.
-3. **Supervised Ensemble Classification (Random Forest):** Training an ensemble classifier to predict a saturation probability score, using a threshold set at the 75th percentile of high-density demand.
+| Part | File | Role |
+|---|---|---|
+| Data adapter | `src/data_adapter.py`, `data_config.json` (optional) | Turns any dataset into one canonical hourly table; see "Use your own data" |
+| Training | `src/model.py` | Zones (KMeans), Cotonou → zone matching, Random Forest (hour, weekday, zone, rain) |
+| Weather | `src/weather.py` | Open-Meteo: historical rain (training) and live forecast (app) |
+| Forecasting | `src/forecast_model.py`, `src/forecast_features.py` | Lag-based models, 1 h and 24 h ahead |
+| Evaluation | `src/evaluate.py` | Rolling-origin validation, model comparison, 95% CIs, calibration, absolute vs relative target |
+| Target decision | `src/choose_target.py` | Pre-registered rules deciding whether to adopt the relative ("surge") target |
+| Sensitivity | `src/sensitivity.py` | How much predictions move if the archetype assumptions are wrong |
+| Field validation | `src/field_validation.py`, `docs/PROTOCOLE_COMPTAGE.md` | Compare real counts with profiles and model alerts |
+| App | `app.py`, `src/theme.py`, `src/*_tab.py` | Streamlit dashboard (dark theme) |
+| Tests | `tests/test_core.py` | Automated checks (synthetic data) |
 
-## Evaluation & Metrics
-The pipeline was trained on a randomized partition of 200,000 spatial transit logs. Since urban traffic bottlenecks represent an asymmetrical class distribution (minority class `1` for gridlock events), model validation strictly relies on the **F1-Score** alongside overall operational accuracy:
+## Quick start
 
-- **Global Classification Accuracy:** **93%**
-- **Traffic Saturation (Class 1) Precision:** **87%** (Low false-positive rate, minimizing false traffic alerts)
-- **Traffic Saturation (Class 1) Recall:** **86%** (High sensitivity, capturing 86% of actual gridlock anomalies)
-- **Macro F1-Score (Class 1 Balanced Metric):** **0.87** 
+```bash
+python -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
 
-```text
-Detailed Classification Report:
-               precision    recall  f1-score   support
-           0       0.95      0.96      0.96      2053
-           1       0.87      0.86      0.87       683
-    accuracy                           0.93      2736
+# Put the training dataset at data/urban_mobility_raw_data.csv
+# (columns: Date/Time, Lat, Lon)
+
+python src/model.py             # trains the main model, writes models/ (needs internet once, for the rain data)
+python src/forecast_model.py    # trains the 1 h / 24 h lag models
+python src/sensitivity.py       # sensitivity of the Cotonou -> zone transfer
+python src/evaluate.py          # statistical evaluation (CIs, model comparison, calibration)
+python src/choose_target.py     # applies the fixed decision rules (absolute vs relative target)
+# only if choose_target says so:
+python src/forecast_model.py --target relative
+streamlit run app.py
 ```
 
-## Analytical Interpretation: Transforming Metrics into Policy Insights
-An F1-score of `0.87` on traffic saturation proves that **non-linear ensemble classifiers (Random Forest)** successfully reconstruct complex urban dependencies that simpler parametric models miss. 
+Run every command from the project root (the scripts use relative paths).
 
-1. **The Compounding Variable Effect:** Standard regression models treat factors linearly. However, our architecture proves that the variable `Heavy_Rain` acts as a **systemic catalyst**. A heavy rain downpour during a non-market day causes minor delays, but when mathematically crossed with `Local_Market_Day` at `Hour=17`, the probability of local network saturation shifts exponentially.
-2. **Infrastructure Constraints:** The `Zone_ID` structural feature generated by the unsupervised **K-Means clustering** uncovers spatial bottlenecks. The model dynamically highlights that specific transport hubs lack the geometric elasticity to absorb sudden influxes of transit vehicles, leading to gridlock propagation.
+## Use your own data (e.g. a dataset from Benin)
 
-## Strategic Horizons & Open Research Questions
-This prototype serves as a foundation for scalable smart-city infrastructure. It raises several open technical and socio-economic questions critical to sustainable development:
+The whole pipeline reads ONE canonical table (hour x zone x activity), produced by `src/data_adapter.py`.
+Without any config file, the original behaviour is kept (event file `data/urban_mobility_raw_data.csv`).
+To use another dataset, copy one of the examples from `config_examples/` to `data_config.json` and edit it:
 
-- **Algorithmic Cross-Domain Adaptability:** *Can a geospatial clustering model trained on highly structured data be transferred to developing African metropolises (e.g., Cotonou, Nairobi, Lagos) using sparse or decentralized data sources like mobile money localization logs or telecommunication metadata?*
-- **Dynamic Resource Allocation:** *How can municipal authorities leverage real-time F1-Score predictions to dynamically adjust public transport vehicle routing or deploy smart traffic signal intervals before systemic gridlocks lock down critical trade corridors?*
-- **Proactive Resilience Engineering:** *To what extent can urban planners simulate artificial climate anomalies within this framework to stress-test future city bypass roads and marketplace logistical hubs before physical construction begins?*
+| Your data | Example config | What happens |
+|---|---|---|
+| Trips / pickups with timestamp + coordinates, from another city | `other_city_events.json` | Events are clustered into zones; each Cotonou hub is matched to the most similar zone (`profile_matching`) |
+| Hourly or finer **vehicle counts** per site, measured in Cotonou | `cotonou_counts.json` | Each site is a zone; each hub IS its own zone (`direct`); no matching, no transfer |
+| **Speeds** per road segment, measured in Cotonou | `cotonou_speeds.json` | Speed is converted to a congestion load = max(free-flow speed - speed, 0); then as above |
 
-## Repository Structure
-```text
-├── data/               # Raw datasets (Uber TLC Dataset - gitignored)
-├── models/             # Serialized artifact binary files (.pkl - gitignored)
-├── src/
-│   └── model.py        # Data Engineering & Machine Learning Pipeline
-├── app.py              # Interactive Web Interface (Streamlit)
-└── requirements.txt    # Production environment dependencies
+Then run the usual commands (`python src/model.py`, `python src/forecast_model.py`, ...). In `direct` mode the
+sensitivity analysis is skipped (nothing to match) and the app adapts its wording and tables automatically.
+
+Checklist before trusting local data: at least one rainy season covered (otherwise the rain effect is not learned),
+several months of history, known sensor outages (they are filled and reported in the console), a defined unit.
+
+## Tests
+
+```bash
+pip install -r requirements-dev.txt
+pytest -q
 ```
 
-## Installation & Deployment
-1. Install dependencies: `pip install -r requirements.txt`
-2. Run the training and data pipeline: `python src/model.py`
-3. Launch the interactive simulation interface: `streamlit run app.py`
+## App tabs
 
-## Author & Credentials
-- **Name:** Dona Fidele Houekpoeha
-- **Credentials:** Verified Specialist in Machine Learning (**Stanford University & DeepLearning.AI**)
+- **Risk profile** – 24-hour risk curve for the selected hub and comparison of the five hubs.
+- **Hub map** – hubs coloured by status (critical / watch / stable).
+- **Action log** – archive of simulations and prescriptive guidelines.
+- **Engineering** – feature importances, real-weather validation, transfer table, statistical evaluation, sensitivity.
+- **Forecast** – backtest of the lag models (1 h / 24 h ahead) against baselines.
+- **Field data** – upload field counts (CSV) to test the transfer with real observations.
+
+## Method in brief
+
+1. Pickups are clustered into 15 spatial zones. Two target definitions are compared: *absolute* ("demand in the top 25%
+   of slots", strongly tied to the zone) and *relative* ("surge above the zone's own usual level"). The relative target
+   is adopted only if it passes rules fixed in advance (`src/choose_target.py`).
+2. Each Cotonou hub has an archetype (commercial hub, logistics hub, …) with a target profile
+   (demand level, peak share, night share). An optimal one-to-one assignment matches hubs to zones.
+3. Rain enters the model as a continuous variable (mm/h) from real weather data.
+4. Validation is chronological (never random), against naive baselines.
+
+## Known limitations
+
+- Training data come from outside Cotonou; the transfer rests on assumed archetype profiles.
+- The learned effect of rain is that of the training location, not of Cotonou's tropical rain.
+- The target measures high *demand*, not congestion itself.
+- About one month of data: confidence intervals are wide; see `python src/evaluate.py`.
+- Field counts (`docs/PROTOCOLE_COMPTAGE.md`) are required before drawing local conclusions.
+
+## Deployment note
+
+Model files (`models/*.pkl`) must be read with the same scikit-learn version that created them.
+Pin your versions before deploying: `pip freeze | grep -iE "scikit-learn|pandas|numpy|scipy|streamlit"`.

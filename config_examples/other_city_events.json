@@ -1,0 +1,8 @@
+{
+  "adapter": "events",
+  "path": "data/other_city_trips.csv",
+  "columns": {"time": "pickup_datetime", "lat": "latitude", "lon": "longitude"},
+  "n_clusters": 15,
+  "transfer_mode": "profile_matching",
+  "source_name": "Other city trips (outside Cotonou)"
+}

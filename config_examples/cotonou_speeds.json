@@ -1,0 +1,18 @@
+{
+  "adapter": "aggregated",
+  "path": "data/cotonou_speeds.csv",
+  "columns": {"time": "timestamp", "zone": "segment", "value": "speed_kmh"},
+  "measure_kind": "speed",
+  "free_flow_speed": 40,
+  "transfer_mode": "direct",
+  "zone_to_hub": {
+    "seg_godomey": "Godomey",
+    "seg_dantokpa": "Dantokpa",
+    "seg_vedoko": "Vedoko",
+    "seg_cadjehoun": "Cadjehoun",
+    "seg_port": "Portuaire"
+  },
+  "weather_lat": 6.37,
+  "weather_lon": 2.39,
+  "source_name": "Cotonou road speeds"
+}

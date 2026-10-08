@@ -8,6 +8,7 @@ import json
 import os
 import pickle
 import sys
+import tempfile
 
 import numpy as np
 import pandas as pd
@@ -16,7 +17,11 @@ import pytest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "src"))
 
+import choose_target  # noqa: E402
+import data_adapter  # noqa: E402
 import evaluate  # noqa: E402
+import forecast_model  # noqa: E402
+import model as training_model  # noqa: E402
 import field_validation as fv  # noqa: E402
 import sensitivity  # noqa: E402
 import weather  # noqa: E402
@@ -206,6 +211,173 @@ def test_evaluate_horizon_runs_for_both_targets():
         assert evaluate.NO_SKILL in names and evaluate.BASELINE in names
         assert 0.0 <= res["prevalence"] <= 1.0
         assert set(res["zone_swap"]) == {evaluate.RF_LAGS, evaluate.RF_NOLAGS}
+
+
+def _eval_block(auc, ci_low, no_skill_f1, drop):
+    return {
+        "models": [
+            {"model": "Random Forest (lags)", "auc": auc, "ci_low": ci_low, "f1": ci_low + 0.02},
+            {"model": "Always alert (no skill)", "auc": None, "ci_low": no_skill_f1, "f1": no_skill_f1},
+        ],
+        "zone_swap": {"Random Forest (no lags)": {"drop": drop}},
+    }
+
+
+def _evaluation(rel):
+    absolute = _eval_block(0.9, 0.9, 0.4, -0.30)
+    return {"horizons": {h: {"targets": {"absolute": absolute, "relative": rel}} for h in ("1", "24")}}
+
+
+def test_decision_adopts_relative_when_all_criteria_pass():
+    result = choose_target.decide(_evaluation(_eval_block(0.75, 0.55, 0.40, -0.02)))
+    assert result["target"] == "relative"
+    assert all(v["passes"] for v in result["horizons"].values())
+
+
+def test_decision_keeps_absolute_when_skill_is_missing():
+    result = choose_target.decide(_evaluation(_eval_block(0.55, 0.55, 0.40, -0.02)))   # AUC too low
+    assert result["target"] == "absolute" and not result["horizons"]["1"]["C1_skill"]
+
+
+def test_decision_keeps_absolute_when_it_does_not_beat_always_alert():
+    result = choose_target.decide(_evaluation(_eval_block(0.80, 0.30, 0.40, -0.02)))   # F1 CI below no-skill
+    assert result["target"] == "absolute" and not result["horizons"]["1"]["C2_beats_trivial"]
+
+
+def test_decision_keeps_absolute_when_not_more_zone_robust():
+    result = choose_target.decide(_evaluation(_eval_block(0.80, 0.55, 0.40, -0.50)))   # worse drop than absolute
+    assert result["target"] == "absolute" and not result["horizons"]["1"]["C3_zone_robust"]
+
+
+def test_parse_target_option():
+    assert forecast_model.parse_target(["prog"]) == "absolute"
+    assert forecast_model.parse_target(["prog", "--target", "relative"]) == "relative"
+    with pytest.raises(SystemExit):
+        forecast_model.parse_target(["prog", "--target", "banana"])
+
+
+# ----------------------------------------------------------------------------
+# Data adapter layer
+# ----------------------------------------------------------------------------
+def _tmp_csv(df, name="data.csv"):
+    folder = tempfile.mkdtemp()
+    path = os.path.join(folder, name)
+    df.to_csv(path, index=False)
+    return path
+
+
+def _aggregated_cfg(path, **extra):
+    cfg = data_adapter.load_config(os.path.join(tempfile.mkdtemp(), "missing.json"))
+    cfg.update({"adapter": "aggregated", "path": path,
+                "columns": {"time": "ts", "zone": "site", "value": "v"},
+                "weather_lat": 6.37, "weather_lon": 2.39})
+    cfg.update(extra)
+    return cfg
+
+
+def test_default_config_reproduces_original_behaviour():
+    cfg = data_adapter.load_config(os.path.join(tempfile.mkdtemp(), "no_such_file.json"))
+    assert cfg["adapter"] == "events" and cfg["path"] == "data/urban_mobility_raw_data.csv"
+    assert cfg["columns"] == {"time": "Date/Time", "lat": "Lat", "lon": "Lon"}
+    assert cfg["n_clusters"] == 15 and cfg["sample_n"] == 200000 and cfg["transfer_mode"] == "profile_matching"
+
+
+def test_config_file_overrides_defaults_and_switches_adapter():
+    path = os.path.join(tempfile.mkdtemp(), "cfg.json")
+    with open(path, "w") as f:
+        json.dump({"adapter": "aggregated", "path": "x.csv", "columns": {"time": "t", "zone": "z", "value": "v"}}, f)
+    cfg = data_adapter.load_config(path)
+    assert cfg["adapter"] == "aggregated" and cfg["columns"] == {"time": "t", "zone": "z", "value": "v"}
+
+
+def test_config_validation_rejects_bad_settings():
+    base = data_adapter.load_config(os.path.join(tempfile.mkdtemp(), "missing.json"))
+    for change in ({"adapter": "banana"}, {"transfer_mode": "teleport"}, {"transfer_mode": "direct"}):
+        with pytest.raises(SystemExit):
+            data_adapter.validate_config({**base, **change})
+    speed = {**base, "adapter": "aggregated", "columns": {"time": "t", "zone": "z", "value": "v"},
+             "measure_kind": "speed", "free_flow_speed": None}
+    with pytest.raises(SystemExit):
+        data_adapter.validate_config(speed)
+
+
+def test_events_adapter_builds_a_complete_hourly_grid():
+    rng = np.random.default_rng(0)
+    n = 3000
+    times = pd.Timestamp("2026-03-01") + pd.to_timedelta(rng.integers(0, 5 * 24 * 3600, n), "s")
+    df = pd.DataFrame({"Date/Time": times.strftime("%m/%d/%Y %H:%M:%S"), "Lat": rng.uniform(40.6, 40.9, n),
+                       "Lon": rng.uniform(-74.1, -73.8, n)})
+    cfg = data_adapter.load_config(os.path.join(tempfile.mkdtemp(), "missing.json"))
+    cfg.update({"path": _tmp_csv(df), "n_clusters": 4})
+    data = data_adapter.load_canonical(cfg)
+    h = data.history
+    assert h["Demand_Volume"].sum() == n                               # every event counted exactly once
+    assert len(h) == h["time"].nunique() * 4 and h["Zone_ID"].nunique() == 4   # complete grid
+    assert data.sparse_events and data.zone_model is not None and list(data.zones.index) == [0, 1, 2, 3]
+    again = data_adapter.load_canonical(cfg, zone_model=data.zone_model)      # reuse of the saved zones
+    assert again.history.equals(h)
+
+
+def test_aggregated_counts_are_summed_per_hour_and_gaps_filled_with_zero():
+    t = pd.date_range("2026-03-01", periods=2 * 24 * 4, freq="15min")
+    df = pd.concat([pd.DataFrame({"ts": t, "site": s, "v": 5}) for s in ("A", "B")])
+    df = df[~((df["site"] == "B") & (df["ts"].dt.hour == 3))]          # B has no data at 3 am
+    data = data_adapter.load_canonical(_aggregated_cfg(_tmp_csv(df)))
+    h = data.history
+    a = h[(h["Zone_ID"] == 0) & (h["time"] == pd.Timestamp("2026-03-01 10:00"))]["Demand_Volume"].iloc[0]
+    b3 = h[(h["Zone_ID"] == 1) & (h["time"] == pd.Timestamp("2026-03-01 03:00"))]["Demand_Volume"].iloc[0]
+    assert a == 20 and b3 == 0                                          # 4 x 5 per hour; gap -> 0
+    assert not data.sparse_events and data.unit == "vehicles/h"
+
+
+def test_aggregated_speed_becomes_a_congestion_load():
+    t = pd.date_range("2026-03-01", periods=48, freq="h")
+    speeds = np.where(t.hour == 8, 15.0, 55.0)                           # slow at 8 am, faster than free flow otherwise
+    df = pd.DataFrame({"ts": t, "site": "seg", "v": speeds})
+    data = data_adapter.load_canonical(_aggregated_cfg(_tmp_csv(df), measure_kind="speed", free_flow_speed=40))
+    h = data.history.set_index("time")["Demand_Volume"]
+    assert h[pd.Timestamp("2026-03-01 08:00")] == pytest.approx(25.0)    # 40 - 15
+    assert h[pd.Timestamp("2026-03-01 12:00")] == 0.0                    # above free flow -> no load
+    assert data.unit == "km/h below free-flow"
+
+
+def test_attach_rain_uses_the_cache_without_network():
+    t = pd.date_range("2026-03-01", periods=48, freq="h")
+    df = pd.DataFrame({"ts": t, "site": "seg", "v": 3})
+    data = data_adapter.load_canonical(_aggregated_cfg(_tmp_csv(df)))
+    cache = _tmp_csv(pd.DataFrame({"time": t, "Rain_mm": np.arange(48, dtype=float)}), "weather.csv")
+    history, weather = data_adapter.attach_rain(data, cache_path=cache)
+    assert history["Rain_mm"].tolist() == list(np.arange(48, dtype=float))
+    assert len(weather) == 48
+
+
+def _zones_frame(hub_values):
+    zones = pd.DataFrame({"label": [f"z{i}" for i in range(len(hub_values))], "lat": np.nan, "lon": np.nan,
+                          "hub": hub_values}, index=pd.Index(range(len(hub_values)), name="Zone_ID"))
+    return zones
+
+
+def test_direct_mode_maps_each_hub_to_its_own_zone():
+    values = ["godomey", "Dantokpa", "VEDOKO", "cadjehoun", "Portuaire", np.nan]
+    zones = _zones_frame(values)
+    profiles = pd.DataFrame({"demand_rank": np.linspace(0.2, 1, 6), "peak_share": 0.3, "night_share": 0.1,
+                             "peak_share_rank": 0.5, "night_share_rank": 0.5}, index=zones.index)
+    mapping = training_model.map_hubs_direct(profiles, zones)
+    assert len(mapping) == 5 and sorted(m["zone_id"] for m in mapping.values()) == [0, 1, 2, 3, 4]
+    assert all(m["distance"] == 0.0 and "target" in m for m in mapping.values())
+    with pytest.raises(SystemExit):                                       # a hub with no zone -> clear error
+        training_model.map_hubs_direct(profiles, _zones_frame(["godomey", "Dantokpa", np.nan, np.nan, np.nan, np.nan]))
+
+
+def test_zone_profiles_from_the_hourly_history():
+    t = pd.date_range("2026-03-02", periods=24, freq="h")                # a Monday
+    history = pd.DataFrame({"time": list(t) * 2, "Zone_ID": [0] * 24 + [1] * 24,
+                            "Demand_Volume": [1] * 24 + [3] * 24})
+    zones = pd.DataFrame({"lat": [1.0, 2.0], "lon": [3.0, 4.0]}, index=pd.Index([0, 1], name="Zone_ID"))
+    prof = training_model.build_zone_profiles(history, zones)
+    assert prof.loc[1, "demand"] == 72 and prof.loc[0, "demand"] == 24
+    assert prof.loc[0, "peak_share"] == pytest.approx(7 / 24)             # 7 peak hours out of 24
+    assert prof.loc[0, "weekend_share"] == 0.0 and prof.loc[1, "demand_rank"] == 1.0
 
 
 # ----------------------------------------------------------------------------

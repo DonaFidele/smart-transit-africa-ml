@@ -10,7 +10,7 @@ import json
 import os
 import urllib.parse
 import urllib.request
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 
@@ -94,6 +94,6 @@ def fetch_forecast(lat, lon, hours=48):
 
     # Heure locale du lieu = UTC + décalage fourni par l'API
     offset = int(payload.get("utc_offset_seconds", 0))
-    now_local = (datetime.utcnow() + timedelta(seconds=offset)).replace(minute=0, second=0, microsecond=0)
+    now_local = (datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(seconds=offset)).replace(minute=0, second=0, microsecond=0)
     df = df[df["time"] >= pd.Timestamp(now_local)].head(hours)
     return df.reset_index(drop=True)

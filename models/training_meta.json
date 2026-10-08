@@ -11,5 +11,9 @@
   "f1_model": 0.926,
   "f1_baseline": 0.913,
   "n_train_days": 24,
-  "n_test_days": 6
+  "n_test_days": 6,
+  "transfer_mode": "profile_matching",
+  "source_name": "Public mobility dataset (outside Cotonou)",
+  "unit": "trips/h",
+  "measure_kind": "count"
 }

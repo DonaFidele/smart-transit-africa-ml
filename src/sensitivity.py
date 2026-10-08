@@ -93,6 +93,12 @@ def verdict(stability, shift):
 
 def main():
     sd = float(sys.argv[1]) if len(sys.argv) > 1 else 0.15
+    if os.path.exists("models/training_meta.json"):
+        with open("models/training_meta.json", "r", encoding="utf-8") as f:
+            if json.load(f).get("transfer_mode") == "direct":
+                print("Sensitivity analysis not applicable: the data are measured in Cotonou (transfer_mode 'direct'), "
+                      "so there is no hub -> zone matching to test.")
+                return
     needed = ["models/traffic_rf_model.pkl", "models/zone_profiles.csv", "models/hub_zone_mapping.json"]
     missing = [p for p in needed if not os.path.exists(p)]
     if missing:

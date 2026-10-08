@@ -1,0 +1,18 @@
+{
+  "adapter": "aggregated",
+  "path": "data/cotonou_counts.csv",
+  "columns": {"time": "timestamp", "zone": "site", "value": "vehicles"},
+  "measure_kind": "count",
+  "transfer_mode": "direct",
+  "zone_to_hub": {
+    "GODOMEY": "Godomey",
+    "DANTOKPA": "Dantokpa",
+    "VEDOKO": "Vedoko",
+    "CADJEHOUN": "Cadjehoun",
+    "PORT": "Portuaire"
+  },
+  "weather_lat": 6.37,
+  "weather_lon": 2.39,
+  "unit": "vehicles/h",
+  "source_name": "Cotonou traffic counts"
+}
