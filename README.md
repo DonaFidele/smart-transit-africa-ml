@@ -1,8 +1,12 @@
 # SmartTransit Africa – Urban Congestion Risk Lab (Cotonou)
 
-[![SmartTransit Africa App](https://streamlit.io)](https://smart-transit-africa.streamlit.app/)
+[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://smart-transit-africa.streamlit.app/)
+
 A decision-support prototype that estimates the risk of traffic saturation at five hubs of Cotonou, Benin,
 and turns it into prescriptive recommendations (drainage, traffic regulation, logistics policy).
+
+**Author:** Dona Fidèle Houekpoeha, software engineering graduate (IFRI, University of Abomey-Calavi, Benin), working on AI for transport and supply chains in Benin.
+This prototype is a first step toward my research interest in predictive and optimization models for transport and supply chains under uncertainty.
 
 > **Status: demonstration prototype (method transfer).**
 > No mobility data from Cotonou was available. The models are trained on a public urban-mobility dataset from
@@ -10,6 +14,45 @@ and turns it into prescriptive recommendations (drainage, traffic regulation, lo
 > matched to the training zone whose demand profile resembles its archetype. The results illustrate the
 > *data → model → decision* chain; they are **not a validated forecast for Cotonou**. Local validation with field
 > counts is built into the project (see below).
+
+## Key results
+
+Chronological (rolling-origin) validation: 4 folds, 15 test days, 5,400 test rows. With about one month of data, confidence intervals are wide. Results below are for the pre-specified model, Random Forest (lags). The no-skill baseline (always raising an alert) scores F1 = 0.41 on the absolute target and 0.46 on the relative target.
+
+| Horizon | Target   | F1 [95% CI]       | AUC   | Gain vs historical rate        |
+|---------|----------|-------------------|-------|--------------------------------|
+| 1 h     | absolute | 0.91 [0.89, 0.93] | 0.990 | +0.008 [-0.003, +0.019], n.s.  |
+| 1 h     | relative | 0.51 [0.44, 0.56] | 0.741 | +0.121 [+0.064, +0.179], sig.  |
+| 24 h    | absolute | 0.89 [0.87, 0.90] | 0.985 | -0.013 [-0.027, +0.001], n.s.  |
+| 24 h    | relative | 0.42 [0.36, 0.47] | 0.681 | +0.031 [-0.016, +0.074], n.s.  |
+
+Decision rule (fixed in advance): the relative ("surge") target is adopted only if three criteria pass at both horizons. Skill (AUC ≥ 0.65) and robustness to a wrong zone assignment pass, but the F1 confidence interval does not clear the always-alert baseline at either horizon (lower bounds 0.44 and 0.36 vs 0.46). The absolute target is therefore kept, and the relative-target result is reported as a documented negative finding.
+
+What the results show:
+
+- On the absolute target, F1 is around 0.90 but the models do not significantly beat the historical rate: this target mostly reflects each zone's usual demand.
+- Recent history (last hour, same hour yesterday, 24 h rolling mean) dominates feature importance; rainfall contributes under 4%.
+- If a hub is matched to the wrong zone, the lag-based Random Forest is unaffected (F1 0.91 → 0.91), while the version without lags collapses (0.90 → 0.33): the transfer to Cotonou depends on the matching.
+
+These results illustrate the *data → model → decision* chain; they are not a validated forecast for Cotonou.
+
+<!-- Add a screenshot of the app here once saved in docs/images/ (remove the comment markers):
+![Risk profile tab](docs/images/risk_profile.png)
+-->
+
+### Sensitivity of the Cotonou → zone transfer
+
+Each Cotonou hub is matched to a training zone through assumed archetype profiles. To test how much this assumption matters, the archetype targets were perturbed with noise (sd = 0.15, 1,000 simulations).
+
+| Hub                                       | Keeps its zone (%) | Expected shift (pts) | Alert flips vs runner-up zone (%) | Verdict  |
+|-------------------------------------------|--------------------|----------------------|-----------------------------------|----------|
+| Grand Marché de Dantokpa (Commercial Hub) | 60.1               | 22.8                 | 63.7                              | moderate |
+| Échangeur de Godomey (West Gateway)       | 58.9               | 18.2                 | 58.0                              | moderate |
+| Zone Portuaire / Akpakpa (Logistics Hub)  | 32.2               | 2.4                  | 1.5                               | moderate |
+| Carrefour Vèdoko (Central Junction)       | 41.7               | 28.1                 | 65.2                              | fragile  |
+| Carrefour Cadjehoun (Avenue Jean-Paul II) | 25.7               | 17.2                 | 9.5                               | fragile  |
+
+No hub is classified as stable. For three hubs (Dantokpa, Godomey, Vèdoko), swapping the assigned zone for the runner-up would flip the alert decision in 58–65% of weekday-hour-rain cases, so their predictions depend strongly on the matching assumption. For the port hub and Cadjehoun, the assignment is unstable but the runner-up zone behaves similarly, so the alert decision is little affected. This is why local field counts (`docs/PROTOCOLE_COMPTAGE.md`) are required before drawing local conclusions.
 
 ## What is inside
 
@@ -98,6 +141,7 @@ pytest -q
 - The target measures high *demand*, not congestion itself.
 - About one month of data: confidence intervals are wide; see `python src/evaluate.py`.
 - Field counts (`docs/PROTOCOLE_COMPTAGE.md`) are required before drawing local conclusions.
+
 
 ## Deployment note
 
