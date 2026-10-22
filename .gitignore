@@ -229,3 +229,4 @@ data/
 # Exclude trained model binaries (large pickle files)
 models/*.pkl
 
+venv/
